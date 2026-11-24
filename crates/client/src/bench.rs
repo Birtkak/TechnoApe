@@ -371,7 +371,7 @@ impl App {
             s.edits as f64 / secs.max(1e-9),
             job_us,
             // the felt temperature at the eye and the look-at panel's lines when the run ended (`App::sense`)
-            self.sensed.as_ref().map_or("null".into(), |s| format!("{{\"temp\":{:.2},\"air\":{:.2},\"radiant\":{:.2}}}", s.1.temp, s.1.air, s.1.radiant)),
+            self.sensed.as_ref().map_or("null".into(), |s| format!("{{\"temp\":{:.2},\"air\":{:.2},\"mrt\":{:.2}}}", s.1.temp, s.1.air, s.1.mrt)),
             self.sensed.as_ref().and_then(|s| s.2.as_ref()).map_or("null".into(), |l| format!("{{\"name\":{:?},\"note\":{:?}}}", l.name, l.note)),
             self.edits_done,
             self.edits_applied,

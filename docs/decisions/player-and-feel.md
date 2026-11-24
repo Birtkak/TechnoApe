@@ -263,29 +263,36 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
 - Open: whether right click should also gather by sweeping while held; thinner outline for tiny things [0144].
 
 ### Felt temperature, and the look-at panel names fluids with heat and hardness [draft, 2026-11-24]
-`World::felt(point, live)` (engine `world/felt.rs`) is the temperature felt at a point: the air there by
-`Ground::air` (above ground the weather's live `Air.temp` the server sends, else the baked climate with the season
-and the hour; under ground whatever the air rule gives, so the rock's heat flows in when that rule blends toward it),
-plus radiant heat. On a body without air it is the ground's temperature at the surface under the point
-(`Body::rest_heat` at the column's top cell; `liquid::AMBIENT` without a map), radiant heat on top. Radiant heat: each
-hot surface within `REACH` 24 m (a live crater's lake, a patch a column at its chamber's heat; stored glowing fluid's
-top cells at the node's heat where the world keeps it, else its row's `heat.pour`) adds the small patch's
-irradiance sigma eps (Ts^4 - Ta^4) A cos / (pi r^2); the sum over `FILM` 8 W/m2K (a clothed person's combined
-convective and radiative coefficient, ASHRAE Fundamentals ch. 9) is the rise; the felt value is held under the
-hottest source. At most `MOST` 256 sources, the nearest, each only when the straight line to it passes no block that
-is solid and opaque (water, glass, leaves and plants let heat through), walked in 0.5 m steps. Fire (0191) adds its
-cells' faces in the one marked place once it is built. The client works it out with the look-at target every
-`SENSE_S` 0.25 s (`App::sense`), on the frame thread.
-The HUD shows it after the compass line's place text as `12.4 C` (the font has no degree sign); F3's World group a
-`Felt` row (the air and the radiant part); the run's JSON `"felt":{temp,air,radiant}` and `"look":{name,note}`; a
-bot's `report` `"felt"`.
+`World::felt(point, live)` (engine `world/felt.rs`) is the temperature felt at a point: the operative temperature
+(ASHRAE 55, ISO 7726). The air there is `Ground::air` (above ground the weather's live `Air.temp` the server sends,
+else the baked climate with the season and the hour; under ground the rock's blended in with depth). The mean radiant
+temperature T_mrt^4 = T_s^4 + sum F_i eps_i (T_i^4 - T_s^4), F_i a small patch's view factor A cos / (pi r^2), the sum
+of F held at or under 1, T_s the air's; felt = (h_c T_air + h_r T_mrt) / (h_c + h_r), h_r = 4 eps sigma T_m^3 at the
+mean of the two (eps 0.95), h_c 3.1 W/m2K (a person at rest in still air, ASHRAE Fundamentals ch. 9). It is bounded by
+the hottest source by itself. On a body without air T_s is the ground's temperature at the surface under the point
+(`Body::rest_heat` at the column's top cell; `liquid::AMBIENT` without a map), h_c is 0 and felt is T_mrt.
+Sources: a live crater's lake nearer than `NEAR` 64 m (to its middle) by samples of its columns on a stride, at most
+about 256 a lake, each for stride^2 columns' area; farther, out to `FAR` 512 m, as one patch of its whole area at its
+middle (no cliff at 64 m); stored glowing fluid's top cells within `REACH` 24 m, the nearest 256. Each counts only when
+the straight line to it passes no block that is solid and opaque (water, glass, leaves and plants let heat through),
+walked in 0.5 m steps. A source radiates at its fluid row's `heat.surface` where it has one (lava 375 C: a lake's crust
+with hot cracks, a flux near 10 kW/m2), else at its own temperature (a lake its chamber's heat, a stored cell its node's
+heat where the world keeps it, else the row's `heat.pour`). Fire (0191) adds its cells' faces in the one marked place
+once it is built. Sources add up by what they fill of the view: 2 m beside a stream of lava 1 wide and 10 long
+about 123 C (F 0.17 on the small planet), 3 m over a lake's middle about 323 C (nearly all the view below), the still air's h_c holding
+it under the crust; the air over lava is the cell's own (no plume yet). The client works it out with the look-at target every `SENSE_S` 0.25 s (`App::sense`), on the frame
+thread.
+The HUD shows it after the compass line's place text as `12.4 °C` (the HUD font's degree sign is the cell after '~', glyph 127, `hud::DEGREE`); F3's World group a
+`Felt` row (the air and the mean radiant temperature); the run's JSON `"felt":{temp,air,mrt}` and `"look":{name,note}`;
+a bot's `report` `"felt"`.
 The look-at panel's target is `edit::look`: `edit::aim`'s walk that stops also at the first step into a fluid other
 than the one the eye is in (the sea, a river, a lake, a crater's lava, stored water, lava, oil). A block's lines: its
-name; its temperature (in the generated ground under its top cell the rock's `rest_heat`, the top cell and what is over it the air's
-there; a fluid's frozen block
-at most its freeze point), `hardness` and `tool` of its `data/blocks.toml` row, light and metal. A fluid's: its row's
-name (`Sea water` where `World::salt`), its temperature (water by its place, not under its freeze point; generated
-fluid by `rest_heat`; stored lava and oil at the node's heat where kept, else the row's pour heat) and depth.
+name; its temperature (in the generated ground under its top cell the rock's `rest_heat`, the top cell and what is
+over it the air's there; a fluid's frozen block at most its freeze point), `hardness` and `tool` of its
+`data/blocks.toml` row, light and metal. A fluid's: its row's name (`Sea water` where `World::salt`), its own
+temperature (water by its place, not under its freeze point; generated fluid by `rest_heat`, a lake's lava its
+chamber's 1150 C, not its crust's; stored lava and oil at the node's heat where kept, else the row's pour heat) and its
+depth (none for a crater's lake, whose lava runs on down its conduit).
 No wire change: a client keeps no node's heat, so stored lava reads its pour heat until it freezes.
 - shortcut: a wall blocks all radiant heat and passes none by conduction, until blocks' rows carry conductivity, heat
   capacity and emissivity (the gases-and-fire step: insulation, rooms holding heat).

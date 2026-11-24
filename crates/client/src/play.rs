@@ -42,7 +42,7 @@ pub(crate) fn looked(w: &World, look: edit::Look, live: Option<f64>) -> Looked {
         edit::Look::Block(b) => {
             let m = w.block(b);
             let Some(d) = BLOCKS.get(m) else { return Looked { what: look, name: "?".into(), note: String::new() } };
-            let mut note = format!("{:.1} C, hardness {}", w.block_temp(b, live), d.hardness);
+            let mut note = format!("{:.1} °C, hardness {}", w.block_temp(b, live), d.hardness);
             if let Some(t) = &d.tool {
                 note += &format!(", {t}");
             }
@@ -57,7 +57,8 @@ pub(crate) fn looked(w: &World, look: edit::Look, live: Option<f64>) -> Looked {
         edit::Look::Fluid(b, k) => {
             let row = engine::fluids::FLUIDS.now().get(k).clone();
             let name = if k == engine::fluids::WATER && w.salt(b) { "Sea water".to_string() } else { capital(&row.name) };
-            Looked { what: look, name, note: format!("{:.1} C, {:.1} m deep", w.fluid_temp(b, k, live), w.fluid_depth(b, k)) }
+            let deep = w.fluid_depth(b, k).map_or(String::new(), |d| format!(", {d:.1} m deep"));
+            Looked { what: look, name, note: format!("{:.1} °C{deep}", w.fluid_temp(b, k, live)) }
         }
     }
 }
@@ -873,7 +874,7 @@ impl App {
                     Some(a) => (a.temp as f64, format!(", rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))),
                     None => (engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)), String::new()),
                 };
-                format!("{c:.1} C, the year's mean here {mean:.0} C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
+                format!("{c:.1} °C, the year's mean here {mean:.0} °C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
             }
             None => "no air reading here".into(),
         };
@@ -885,7 +886,7 @@ impl App {
             }
             None => "nothing in reach".into(),
         };
-        let felt = self.sensed.as_ref().map_or("not yet".into(), |s| format!("{:.1} C: the air {:.1} C, {:.1} C radiant", s.1.temp, s.1.air, s.1.radiant));
+        let felt = self.sensed.as_ref().map_or("not yet".into(), |s| format!("{:.1} °C: the air {:.1} °C, mean radiant {:.1} °C", s.1.temp, s.1.air, s.1.mrt));
         let (yaw, pitch) = stand_angles(w.up_at(pos), fwd);
         let tool = if self.bucket { "bucket" } else if self.hammer { "build hammer" } else { "hands" };
         let tool = if self.flying { format!("{tool}, flying {:.0} m/s", self.fly_speed) } else { tool.to_string() };
@@ -1569,7 +1570,7 @@ impl App {
                 let text = if self.creative { format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius) } else { b.name.clone() };
                 // the felt temperature at the eye beside the place (the font has no degree sign: "C")
                 let text = match &self.sensed {
-                    Some(s) => format!("{text}  {:.1} C", s.1.temp),
+                    Some(s) => format!("{text}  {:.1} °C", s.1.temp),
                     None => text,
                 };
                 label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
@@ -1888,7 +1889,7 @@ mod looked_tests {
         let at = |dz: i32| Block { pos: top.pos + IVec3::Z * dz, ..top };
         w.set_block(at(3), BLOCKS.id("granite"));
         let l = looked(&w, edit::Look::Block(at(3)), Some(21.5));
-        assert_eq!((l.name.as_str(), l.note.as_str()), ("granite", "21.5 C, hardness 9, pick"));
+        assert_eq!((l.name.as_str(), l.note.as_str()), ("granite", "21.5 °C, hardness 9, pick"));
         let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
         w.set_block(at(-2), BLOCKS.id("stone"));
         w.set_block(at(-1), AIR);
@@ -1901,6 +1902,6 @@ mod looked_tests {
             assert!(water.pour_kind(&g, c, at(-1).pos.z, engine::liquid::U, lava));
         }
         let l = looked(&w, edit::Look::Fluid(at(-1), lava), Some(21.5));
-        assert_eq!((l.name.as_str(), l.note.as_str()), ("Lava", "1150.0 C, 1.0 m deep"));
+        assert_eq!((l.name.as_str(), l.note.as_str()), ("Lava", "1150.0 °C, 1.0 m deep"));
     }
 }
