@@ -315,6 +315,26 @@ different fluids, the denser keeps the gap".
 - **Not chosen:** an ice layer in the node (a wire and save change for a thickness the block grid shows anyway); a
   temperature on every stored column (the spike: 30 times the time, 14 the memory, every save larger).
 
+### Lava drawn as a cracked crust, oil as a glossy slick with a film [draft, 2026-11-24]
+The developer: "make liquids look more pretty". Lava (side bit 4 in `fs_water`, stored and the volcano's lake) is a
+basalt crust (0.05, 0.043, 0.04), lit by the sun, the sky and 0.6 of the row's light, broken into 1.7 m plates (a
+jittered grid's F2 - F1) whose cracks glow in the row's light; a slow swell of heat (value noise at 0.18 a metre)
+widens the cracks from 5 cm to 50 cm so plates melt to open melt, adds a finer net at 0.4 of the plate size, and
+warms the crust near its cracks; the crust drifts at (0.035, 0.02) columns a second. On the 1/16 m texels at
+`WATER_STEPS`; where a pixel spans over 8 cm the cracks give way to their share of glow; a fall or a front runs molten,
+streaked down. Oil (side bit 8, `tinted`) takes the water's ripple normal (`rippled`) at half the frequency, a third of
+the pace and 0.05 tilt, a 6 % Fresnel to `sky_colour` along the reflected ray and Luna, a sharp glint (exponent 400
+near), and a thin film's bands (a cosine palette over a drifting thickness and the angle) in drifting patches at 8 to
+25 % of the sky, exaggerated over a real film's few per cent so a slick reads as oil from any angle. The water's own
+look (ADR 0071: ripples, Fresnel, sky and traced reflection, glint, depth through the view ray, shore foam, falls,
+under water) was already what this round set out to add, so it stays as it is.
+Alternatives rejected: a crack pattern from a texture (the grid's noise is per texel already, no new binding); a
+subsurface scatter term on the water's ripple flanks (tried: under 1/255 on the sea at noon, not worth its cost);
+less absorption in green for clearer shallows (tried: the dim bed under the water showed more, so shallows darkened).
+Open: lava's and oil's numbers are shader constants (`LAVA_PLATE`, `LAVA_DRIFT`, `LAVA_CRUST`, oil's in `tinted`), not
+columns of `data/fluids.toml`, whose schema is the engine's; they move to the rows when a second glowing or tinted
+fluid needs other numbers. Lava's flow direction does not move its crust (stored quads carry no flow).
+
 ## The sea and the ledger
 
 - **The sea** is generated from the seed: every column whose ground is under the sea level holds water up to it.
