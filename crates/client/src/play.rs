@@ -60,6 +60,16 @@ const FORGET_M: f64 = 32.0;
 /// temperature, hardness, the tool it wants and what else it is; a fluid's name (sea water by the sea's salt), its
 /// temperature and depth.
 pub(crate) fn looked(w: &World, look: edit::Look, live: Option<f64>) -> Looked {
+    // snow, ice or rock in eighths lying on the block aimed at, or on the fluid's cell (ADR 0189): named first,
+    // with its depth in eighths and what it lies on
+    let (b, on, under) = match look {
+        edit::Look::Block(b) => (b, 1, BLOCKS.get(w.block(b)).map_or("?".to_string(), |d| d.name.clone())),
+        edit::Look::Fluid(b, k) => (b, 0, engine::fluids::FLUIDS.now().get(k).name.clone()),
+    };
+    if let Some(s) = w.snow.seen.get(&World::col(b)).filter(|s| s.z == b.pos.z + on) {
+        let name = BLOCKS.get(s.block).map_or("?".to_string(), |d| capital(&d.name));
+        return Looked { what: look, name, note: format!("{} eighths deep, on {under}", s.eighths) };
+    }
     match look {
         edit::Look::Block(b) => {
             let m = w.block(b);
@@ -1953,5 +1963,19 @@ mod looked_tests {
         }
         let l = looked(&w, edit::Look::Fluid(at(-1), lava), Some(21.5));
         assert_eq!((l.name.as_str(), l.note.as_str()), ("Lava", "1150.0 °C, 1.0 m deep"));
+    }
+
+    /// Snow in eighths (ADR 0189) on the block aimed at is named first, with its depth and what it lies on.
+    #[test]
+    fn the_panel_names_snow_in_eighths_and_what_it_lies_on() {
+        let mut w = World::new(256, 32, 1);
+        let b = w.bodies[0].clone();
+        let top = w.block_at(b.centre + DVec3::Z * (b.height(DVec3::Z) - 0.5));
+        let at = Block { pos: top.pos + IVec3::Z * 3, ..top };
+        w.set_block(at, BLOCKS.id("granite"));
+        let snow = engine::snow::Seen { z: at.pos.z + 1, top: 0.375, eighths: 3, block: BLOCKS.id("snow") };
+        w.snow.apply(&[(World::col(at), Some(snow))]);
+        let l = looked(&w, edit::Look::Block(at), Some(-3.0));
+        assert_eq!((l.name.as_str(), l.note.as_str()), ("Snow", "3 eighths deep, on granite"));
     }
 }

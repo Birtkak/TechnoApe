@@ -355,6 +355,11 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
                     ToClient::Done { seq, .. } => {
                         b.pred.done(&mut b.world, seq);
                     }
+                    ToClient::Unedit(v) => {
+                        for blk in v {
+                            b.world.put_edit(blk, None);
+                        }
+                    }
                     ToClient::Water(v) => {
                         for (t, cols) in &v {
                             b.world.water.set_tile(*t, cols);

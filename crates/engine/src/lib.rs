@@ -29,6 +29,7 @@ pub mod phys;
 pub mod recipes;
 pub mod rock;
 pub mod sky;
+pub mod snow;
 pub mod stream;
 pub mod structures;
 pub mod textures;

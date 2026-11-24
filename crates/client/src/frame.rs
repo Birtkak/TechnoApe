@@ -487,6 +487,18 @@ impl App {
                         self.models.set_state(b, on.then_some("working"));
                     }
                 }
+                // snow, ice and rock in eighths (ADR 0189): the slabs are laid again once, not each frame
+                Recv::Msg(ToClient::Layers(v)) => {
+                    self.world.snow.apply(&v);
+                    self.slabs_at = None;
+                }
+                // a snow block over a plant gone: the cell is generation's again, its plant drawn
+                Recv::Msg(ToClient::Unedit(v)) => {
+                    for b in v {
+                        self.world.put_edit(b, None);
+                        self.streamer.touch_block(&self.world, b);
+                    }
+                }
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 // (what was derived from the old rows follows `live::rev`, below, whoever applied them)
                 Recv::Msg(ToClient::Defs { blocks, items }) => {

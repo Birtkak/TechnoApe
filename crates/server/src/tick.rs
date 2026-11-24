@@ -11,7 +11,8 @@ impl Server {
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
         if let Some(w) = &mut self.weather {
             // the air's runoff into the rivers (W5, ADR 0059), already out of the air's sea term
-            for (reach, units) in w.tick(self.tick, self.world.time) {
+            // (and what the live snow owes the air settled, ADR 0189)
+            for (reach, units) in w.tick_owing(self.tick, self.world.time, &mut self.world.snow.owed) {
                 self.world.water.rain(reach, units);
             }
             self.send_sky();
@@ -78,6 +79,10 @@ impl Server {
             if !fires.is_empty() {
                 link.send(ToClient::Fires(fires));
             }
+            let layers: Vec<(Col, Option<engine::snow::Seen>)> = self.world.snow.seen.iter().map(|(c, s)| (*c, Some(*s))).collect();
+            for part in layers.chunks(EDITS_PART) {
+                link.send(ToClient::Layers(part.to_vec()));
+            }
             let spawn = self.spawn();
             self.clients.push(Client {
                 link,
@@ -119,6 +124,8 @@ impl Server {
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
+        // cells generation's again (a snow block over a plant gone, ADR 0189): sent as `Unedit` after the edits
+        let mut unset: Vec<Block> = Vec::new();
         let mut deaths = Vec::new();
         // ghosts taken over this tick (the Hello arm): not read again, dropped (closing their links) after the loop
         let mut ghosts: Vec<u32> = Vec::new();
@@ -419,6 +426,7 @@ impl Server {
                 .collect();
             // the air water's phases go by: the live air grid's on the planet; the heat step runs by the world's clock
             // (a time warp of n runs n seconds of it a second)
+            let force = self.force;
             let (world, weather) = (&mut self.world, &self.weather);
             let b0 = world.bodies[0].clone();
             let live = |c: engine::liquid::Col, z: f64| {
@@ -429,6 +437,55 @@ impl Server {
             for (b, was, m) in world.cool_fluids_in(self.warp as f64, |b| taken.contains(&b), Some(&live)) {
                 changed.push((b, m));
                 self.events.push(Event::Edit { at: b, was, now: m, by: None });
+            }
+            // snow in eighths on the columns round the players (ADR 0189) by the same air and clock: the live
+            // air's snowfall where it is under freezing at the column's height, from the air column's account; eight
+            // eighths a block of snow through the edits; the ice and rock short of a block shown with it
+            let feet: Vec<DVec3> = self.clients.iter().map(|c| c.phys.pos).collect();
+            let near = engine::snow::near(world, &feet);
+            let wet: std::collections::BTreeSet<Col> = near.iter().copied().filter(|&c| world.water.open_water(c)).collect();
+            // a layer's floor cell a block of snow may be set in: empty air no player stands in (a plant, a torch or a
+            // pair of feet keeps it at seven eighths)
+            let room: std::collections::BTreeMap<(Col, i32), bool> = near
+                .iter()
+                .filter_map(|&c| {
+                    let z = world.snow.cols.get(&c)?.floor;
+                    let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), z) };
+                    (z != engine::snow::NOWHERE && world.block(b) == AIR && !taken.contains(&b)).then_some(((c, z), world.edit(b).is_none()))
+                })
+                .collect();
+            let sea = b0.sea.map_or(b0.radius, |s| b0.layer_r(s));
+            let here = |c: Col, z: i32| {
+                let w = weather.as_ref().filter(|_| c.body() == 0 && !wet.contains(&c))?;
+                let d = b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
+                let cell = w.column(d);
+                // a forced weather (`/weather`, for filming) lays and melts the snow near the players too; the grid
+                // and the water's heat stay the air's own
+                let h = force.map_or(w.here(d, b0.layer_r(z as f64) - sea), |f| f.here(w.here(d, b0.layer_r(z as f64) - sea), w.view().theta[cell]));
+                let fall = if h.temp < 0.0 { h.rain.max(0.0) as f64 / 3600.0 * engine::snow::PER_MM } else { 0.0 };
+                Some(engine::snow::Here { cell: cell as u32, formula: w.lying(cell) as f64 * engine::snow::PER_MM, fall, has: w.has(cell), room: room.contains_key(&(c, z)), fresh: room.get(&(c, z)).copied().unwrap_or(false) })
+            };
+            let snow_air = |c: Col, z: f64| {
+                let t = live(c, z)?;
+                let (Some(ft), Some(w)) = (force.and_then(|f| f.temp), weather.as_ref()) else { return Some(t) };
+                let cell = w.column(b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5));
+                Some(t - w.view().theta[cell] as f64 + ft as f64)
+            };
+            for (b, was, m) in world.step_snow(self.warp as f64, &near, Some(&snow_air), &here) {
+                match m {
+                    Some(m) => {
+                        changed.push((b, m));
+                        self.events.push(Event::Edit { at: b, was, now: m, by: None });
+                    }
+                    None => unset.push(b),
+                }
+            }
+            // a column is sent when it passes an eighth: a snowfall sends a few a second, never the whole view
+            let layers = world.snow.changes();
+            if !layers.is_empty() {
+                for c in &self.clients {
+                    c.link.send(ToClient::Layers(layers.clone()));
+                }
             }
             // lava meeting water boiled it off there (liquids.md step 4): its steam, by the events' path to the clients
             for (at, kind) in self.world.take_boils() {
@@ -461,6 +518,21 @@ impl Server {
         for (b, _) in &changed {
             self.world.watch_ice_near(*b);
         }
+        // a live column's snow finds its floor again after an edit; a packed block of snow taken away soaks in
+        let snow = BLOCKS.id("snow");
+        for &(b, m) in &changed {
+            self.world.snow.touch(World::col(b));
+            // a block of snow over a plant dug: the snow goes, the plant is back (the cell generation's again)
+            if m != snow && self.world.snow.unpacked(World::col(b), b.pos.z) == Some(true) && m == AIR {
+                self.world.put_edit(b, None);
+                self.world.regap(b);
+                unset.push(b);
+            }
+        }
+        for &b in &unset {
+            self.world.snow.touch(World::col(b));
+            self.resettle(Block { pos: b.pos + glam::IVec3::Z, ..b });
+        }
         // piles over a dug cell fall, a pile in a placed one rises (ADR 0074); then every player picks up
         for (b, m) in &changed {
             self.resettle(Block { pos: b.pos + glam::IVec3::Z * !BLOCKS.solid(*m) as i32, ..*b });
@@ -481,6 +553,11 @@ impl Server {
         for part in changed[..mine].chunks(EDITS_PART).chain(changed[mine..].chunks(EDITS_PART)) {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(part.to_vec()));
+            }
+        }
+        for part in unset.chunks(EDITS_PART) {
+            for c in &self.clients {
+                c.link.send(ToClient::Unedit(part.to_vec()));
             }
         }
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
