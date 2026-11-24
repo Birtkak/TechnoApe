@@ -98,7 +98,7 @@ impl Server {
         let block_named = |name: &str| BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name));
         let blocks = || BLOCKS.placeable().map(|d| d.name.as_str()).collect::<Vec<&str>>().join(", ");
         let verb = w.first().map(|s| s.to_lowercase());
-        // a spectator acts on nothing (draft ADR spectator-and-sky): no blocks, no structures, nothing given
+        // a spectator acts on nothing (ADR 0202): no blocks, no structures, nothing given
         if self.clients[i].spectator && matches!(verb.as_deref(), Some("give" | "place" | "structure")) {
             return "a spectator changes nothing: /playmode survival or creative first".into();
         }
@@ -335,7 +335,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             Some("playmode") | Some("gamemode") => {
                 let c = &self.clients[i];
                 let now = if c.spectator { "spectator" } else { mode(c.creative) };
-                // (the developer, 2026-11-24: spectator is a mode of /playmode, draft ADR spectator-and-sky)
+                // (the developer, 2026-11-24: spectator is a mode of /playmode, ADR 0202)
                 let (creative, spectator) = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
                     None => return format!("you play in {now} mode\nusage: /playmode creative|survival|spectator"),
                     Some("creative" | "c" | "1") => (true, false),

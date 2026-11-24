@@ -1,4 +1,4 @@
-//! Spectator mode (draft ADR spectator-and-sky): `/playmode spectator` flies through everything, acts on nothing and is sent to nobody.
+//! Spectator mode (ADR 0202): `/playmode spectator` flies through everything, acts on nothing and is sent to nobody.
 use super::*;
 
 /// A player put in spectator mode on dry land, looking along a tangent there: its feet and that tangent.
@@ -247,7 +247,7 @@ fn a_spectator_taken_over_comes_back_on_the_open_ground() {
 }
 
 /// Creatures do not see a spectator: they flee and wake for the others only; but the herds near it are kept
-/// awake, as near any player (the overseer's call, draft ADR spectator-and-sky).
+/// awake, as near any player (the overseer's call, ADR 0202).
 #[test]
 fn a_spectator_is_no_player_to_the_herds_or_the_harm_but_keeps_them_awake() {
     let (mut s, links) = server_with(1);

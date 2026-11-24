@@ -429,7 +429,7 @@ impl Server {
     /// feet's face, so a pile just over a cube face's edge waits until the player steps across.
     pub(super) fn pick_up(&mut self) {
         let Server { clients, piles, piles_changed, world, tick, .. } = self;
-        // (a spectator picks up nothing, draft ADR spectator-and-sky)
+        // (a spectator picks up nothing, ADR 0202)
         for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none() && !c.spectator) {
             let feet = c.phys.pos;
             let mid = world.block_at(feet + phys::up(world, feet) * 0.5);

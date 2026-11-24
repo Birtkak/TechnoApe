@@ -1,4 +1,4 @@
-//! F10's sights in the sky (draft ADR spectator-and-sky): eclipses and Luna's phases found in the world's own orbits.
+//! F10's sights in the sky (ADR 0202): eclipses and Luna's phases found in the world's own orbits.
 use crate::nav::elongation;
 use glam::DVec3;
 
@@ -23,7 +23,7 @@ fn next_lineup(from: f64, until: f64, step: f64, near: f64, off: &dyn Fn(f64) ->
     None
 }
 
-/// What F10's sky rows look for (draft ADR spectator-and-sky): Sol hidden by a body's moon seen from the body (`Solar`; total,
+/// What F10's sky rows look for (ADR 0202): Sol hidden by a body's moon seen from the body (`Solar`; total,
 /// partial or annular by what the discs give), a moon in its body's shadow (`Lunar`), the same line-up seen from
 /// the moon (`FromMoon`), and Luna at a phase (`Phase`, an index of `PHASES`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,7 +57,7 @@ pub struct Sight {
 pub const YEARS: f64 = 3.0;
 
 /// The first time from `from` on when the world's own orbits give `e`, and where on which body it is seen
-/// (draft ADR spectator-and-sky): nothing is posed, the poses are `World::pose` at the found time. None when they do not give it
+/// (ADR 0202): nothing is posed, the poses are `World::pose` at the found time. None when they do not give it
 /// within `YEARS`.
 pub fn find(w: &engine::world::World, from: f64, e: Event) -> Option<Sight> {
     let sky = &w.sky;

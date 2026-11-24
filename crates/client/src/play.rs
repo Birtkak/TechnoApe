@@ -1,7 +1,7 @@
 //! run=play: building, digging and the bucket, `acts=` scripted input, chat and commands, F3 and F9, reconciling with the server (ADR 0025 L: moved out of main.rs).
 use super::*;
 
-/// The playtest menu's rows (F10, rebuilt for the sky, draft ADR spectator-and-sky): a name and the sight it takes you to. Each is
+/// The playtest menu's rows (F10, rebuilt for the sky, ADR 0202): a name and the sight it takes you to. Each is
 /// found in the world's own orbits from now on (`sights::find`): the clock goes to that moment and the player to a
 /// place it is seen from, looking at it. An annular eclipse of the sun by Luna is not a row: from no ground on
 /// Terra does Luna ever look smaller than Sol (sights.rs's test).
@@ -370,7 +370,7 @@ impl App {
     /// m:dx:dy turns the look.
     pub(crate) fn act(&mut self, a: &str) {
         match a {
-            // a spectator acts on nothing and always flies (draft ADR spectator-and-sky): no dig, place, pick-up, use or drink, no landing
+            // a spectator acts on nothing and always flies (ADR 0202): no dig, place, pick-up, use or drink, no landing
             "L" | "R" | "fly" if self.spectator => {}
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pick-up, a drink, a pour, a strike or a place against it
@@ -704,7 +704,7 @@ impl App {
         }
     }
 
-    /// A row of the playtest menu (F10, draft ADR spectator-and-sky): the next time from now the world's own orbits give its sight
+    /// A row of the playtest menu (F10, ADR 0202): the next time from now the world's own orbits give its sight
     /// (`sights::find`), the clock set there (a total eclipse of the sun 20 s before, so the shadow comes over), the
     /// player stood where it is seen and turned to it, and a line saying what and when. Nothing is posed by hand.
     pub(crate) fn playtest(&mut self, k: usize) {
@@ -1575,7 +1575,7 @@ impl App {
         while let Ok(l) = self.bug_said.1.try_recv() {
             self.note(l);
         }
-        // a spectator aims at nothing: no outline, no look-at panel (it passes through blocks, draft ADR spectator-and-sky)
+        // a spectator aims at nothing: no outline, no look-at panel (it passes through blocks, ADR 0202)
         self.aim = if self.spectator { None } else { edit::aim(&self.world, p.pos, p.fwd, AIM_REACH) };
         let t = self.world.time;
         let still = &self.gpu.as_ref().unwrap().still;

@@ -149,7 +149,7 @@ fn saved(c: &Client) -> Saved {
     Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone(), journal: engine::journal::JOURNAL.saved(&c.journal, &c.kept) }
 }
 
-/// `saved` in `world`: a spectator (not saved itself, draft ADR spectator-and-sky) is kept where leaving the mode would
+/// `saved` in `world`: a spectator (not saved itself, ADR 0202) is kept where leaving the mode would
 /// put it (`landing`).
 fn saved_in(c: &Client, world: &World) -> Saved {
     let mut s = saved(c);
@@ -159,7 +159,7 @@ fn saved_in(c: &Client, world: &World) -> Saved {
     s
 }
 
-/// Where a spectator leaving the mode stands (by command, by a save, by a takeover; draft ADR spectator-and-sky): on
+/// Where a spectator leaving the mode stands (by command, by a save, by a takeover; ADR 0202): on
 /// the open ground of its column (`phys::open_ground`: not in a cave, not in the air, not in lava); over a gas body,
 /// in space or over lava, on the open ground where it went in, else just there.
 fn landing(c: &Client, world: &World) -> DVec3 {
@@ -213,7 +213,7 @@ struct Client {
     credit: i32,
     /// Creative counts nothing; survival digs into piles and places from its slots (ADR 0014, 0074).
     creative: bool,
-    /// Spectator mode (draft ADR spectator-and-sky, `/playmode spectator`): it flies through everything (`phys::ghost`), takes no harm,
+    /// Spectator mode (ADR 0202, `/playmode spectator`): it flies through everything (`phys::ghost`), takes no harm,
     /// acts on nothing, and no other client is sent it. Not saved: a save keeps where leaving it would put the
     /// player (`saved_in`), so a world where nobody is one saves and hashes as before.
     spectator: bool,

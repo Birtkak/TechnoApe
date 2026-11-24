@@ -195,7 +195,7 @@ pub enum ToClient {
     /// Cells whose edit is gone, generation's again (ADR 0189: snow packed over a clutter plant melted or dug,
     /// the plant back): sent after the tick's `Edits`. Last of the variants, as `Layers`.
     Unedit(Vec<Block>),
-    /// This player is a spectator now (true) or no longer (draft ADR spectator-and-sky, `/playmode spectator`): it flies through
+    /// This player is a spectator now (true) or no longer (ADR 0202, `/playmode spectator`): it flies through
     /// everything with `phys::ghost` and acts on nothing. Sent on a change only (a join is never one). Last of the
     /// variants, as `Layers`.
     Spectator(bool),

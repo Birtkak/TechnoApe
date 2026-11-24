@@ -180,7 +180,7 @@ pub struct Bot {
     /// Plays creative (bots start so, ADR 0074); `say /playmode survival` turns it off, and its digs are then held
     /// for their time as a player's are (ADR 0034, 0097).
     creative: bool,
-    /// Spectator mode as the server says (`ToClient::Spectator`, draft ADR spectator-and-sky).
+    /// Spectator mode as the server says (`ToClient::Spectator`, ADR 0202).
     spectator: bool,
     /// A survival dig held until that tick, of that shape.
     digging: Option<(u64, Shape)>,
@@ -379,7 +379,7 @@ impl Bot {
                 }
                 Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_) | ToClient::Events(_) | ToClient::Layers(_)) => {}
                 Recv::Msg(ToClient::Furnace { at, f }) => self.furnace = Some((at, f)),
-                // `say /playmode spectator` (draft ADR spectator-and-sky): the server's word on it, in the report
+                // `say /playmode spectator` (ADR 0202): the server's word on it, in the report
                 Recv::Msg(ToClient::Spectator(on)) => self.spectator = on,
                 Recv::Msg(ToClient::Prospect(v)) => {
                     let heard: Vec<String> = v.iter().map(|(e, b)| format!("[{e:?},{:?}]", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect();

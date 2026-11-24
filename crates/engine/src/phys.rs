@@ -310,7 +310,7 @@ pub fn onto_ground(world: &World, p: &mut Player) {
     p.vel -= n * p.vel.dot(n).min(0.0);
 }
 
-/// Where a player leaving spectator mode at `pos` stands (draft ADR spectator-and-sky): on the open ground of its
+/// Where a player leaving spectator mode at `pos` stands (ADR 0202): on the open ground of its
 /// column, the first solid cell from the sky down, so not in a cave under it nor in the air over it; on the
 /// surface of water there (it swims). None where that ground is lava, on a gas body, or out of every body's frame.
 pub fn open_ground(world: &World, pos: DVec3) -> Option<DVec3> {
@@ -355,7 +355,7 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool 
     sprinted
 }
 
-/// A spectator's step (draft ADR spectator-and-sky): flight along the look at the input's `fly` speed (`GHOST_FLY` when 0), up and down
+/// A spectator's step (ADR 0202): flight along the look at the input's `fly` speed (`GHOST_FLY` when 0), up and down
 /// with jump and `down`, through blocks and fluids, with no gravity, no box and no ground. The body stays upright on
 /// the pull's up and turns with the input; it changes frame as any step does.
 pub fn ghost(world: &World, p: &mut Player, inp: &Input, dt: f64) {

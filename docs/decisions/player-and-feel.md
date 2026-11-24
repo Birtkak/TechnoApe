@@ -510,7 +510,7 @@ Open: a message for the looked-at node's heat if the pour heat misleads; the fel
   with a line saying what, when and which way to look [0036]. shortcut: a row reads the client's clock, a little off
   under a time warp [0036].
 
-### Spectator mode, and the playtest menu rebuilt on the orbits' own times [draft, 2026-11-24]
+### Spectator mode, and the playtest menu rebuilt on the orbits' own times [0202, 2026-11-24]
 The developer's calls (2026-11-24): F10's rows are the sky's sights only, the old set-ups removed: the eclipses and
 Luna's eight phases, each found in the world's own orbits forward from now (`sights::find`, `World::pose`: nothing is
 posed by hand, ADR 0177, 0181), within 3 home years. Rows: Sol totally and partly hidden by Luna from Terra (total: where
@@ -577,7 +577,7 @@ Replaces: 0036's eclipse rows on `nav::next_eclipse` and the playtest set-ups (l
 ## No longer holds
 
 - 0036's playtest rows: the two eclipses from `nav::next_eclipse` (one sky cycle, Terra and Luna only) and the set-ups
-  for light, the bars, death, flight and Luna: replaced by the sky's rows of the draft "Spectator mode, and the playtest
+  for light, the bars, death, flight and Luna: replaced by the sky's rows of ADR 0202, "Spectator mode, and the playtest
   menu rebuilt on the orbits' own times" (2026-11-24).
 
 - 0007's radial gravity toward the nearest body's centre and a 9.81 gravity: replaced by 0024 (every body pulls, own

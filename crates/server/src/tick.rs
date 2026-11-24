@@ -235,7 +235,7 @@ impl Server {
                             }
                         }
                     }
-                    // a spectator acts on nothing (draft ADR spectator-and-sky): what is answered is refused, the rest ignored
+                    // a spectator acts on nothing (ADR 0202): what is answered is refused, the rest ignored
                     Recv::Msg(ToServer::Edit { seq, .. } | ToServer::Items { seq, .. } | ToServer::Take { seq, .. } | ToServer::Bucket { seq, .. }) if self.clients[i].spectator => {
                         self.clients[i].done.push((seq, false));
                         self.clients[i].inv_dirty = true;
@@ -357,7 +357,7 @@ impl Server {
                 if dead { vitals::still(inp) } else { inp }
             };
             if let (Some(inp), true) = (c.input, c.spectator) {
-                // a spectator flies through everything and takes nothing (draft ADR spectator-and-sky)
+                // a spectator flies through everything and takes nothing (ADR 0202)
                 for _ in 0..steps {
                     phys::ghost(&self.world, &mut c.phys, &inp, phys::DT);
                 }
@@ -428,7 +428,7 @@ impl Server {
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players = self.herd_players();
         let t = self.herds.clock;
-        // a spectator keeps the herds near it awake, but none of them sees it (draft ADR spectator-and-sky)
+        // a spectator keeps the herds near it awake, but none of them sees it (ADR 0202)
         for c in self.clients.iter().filter(|c| c.spectator && self.world.frame_at(c.phys.pos) == 0) {
             self.herds.wake(&self.world, c.phys.pos, t);
         }
@@ -663,7 +663,7 @@ impl Server {
             }
             let players: Vec<(bool, Player)> = self.clients.iter().map(|c| (c.spectator, Player { hand: c.sent_hand, ..c.player.clone() })).collect();
             for c in &self.clients {
-                // a spectator is sent to itself only (draft ADR spectator-and-sky)
+                // a spectator is sent to itself only (ADR 0202)
                 c.link.send(ToClient::Players(players.iter().filter(|(ghost, p)| !ghost || p.id == c.player.id).map(|p| p.1.clone()).collect()));
             }
         }

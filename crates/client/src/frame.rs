@@ -168,7 +168,7 @@ impl App {
             let my = if self.settings.on(S::InvertY) { -my } else { my };
             // the look is the player's own and turns in the steps, so no frame change makes it mean another way
             self.turn -= mx * sens;
-            // flight is creative's, and a spectator's always (draft ADR spectator-and-sky); the server holds to that too
+            // flight is creative's, and a spectator's always (ADR 0202); the server holds to that too
             self.flying = self.spectator || self.flying && self.creative;
             if !self.spectator && phys::free(&self.world, &self.me, self.flying) {
                 // out here the mouse pitches the body itself, the head's tilt folded into it, and Q/E roll it
@@ -404,7 +404,7 @@ impl App {
                     self.reconcile(step, me, hunger, t)
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
-                // spectator mode on or off (draft ADR spectator-and-sky): it flies from now on; out of it, flying is creative's again
+                // spectator mode on or off (ADR 0202): it flies from now on; out of it, flying is creative's again
                 Recv::Msg(ToClient::Spectator(on)) => (self.spectator, self.flying) = (on, on || self.flying && self.creative),
                 Recv::Msg(ToClient::Inventory { creative, slots, water }) => {
                     (self.creative, self.bucket_water) = (creative, water);
@@ -1109,7 +1109,7 @@ impl App {
         let proxy_tris = crate::proxy::triangles(&self.models.list.iter().find(|l| l.0.name == crate::models::FIGURE).map_or_else(crate::proxy::plain, |l| crate::proxy::boxes(&l.0.model)));
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
-        // (a spectator has no hand: it holds and strikes nothing, draft ADR spectator-and-sky)
+        // (a spectator has no hand: it holds and strikes nothing, ADR 0202)
         let hand = (hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu) && !self.spectator)
             .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
         let swing = engine::hand::HAND.curve(self.start.elapsed().as_secs_f64() - self.dip.tween.start);

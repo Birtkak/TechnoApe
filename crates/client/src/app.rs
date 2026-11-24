@@ -169,7 +169,7 @@ pub(crate) struct App {
     pub(crate) new_world: menu::NewWorld,
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
-    /// Spectator mode as the server last said (`ToClient::Spectator`, draft ADR spectator-and-sky).
+    /// Spectator mode as the server last said (`ToClient::Spectator`, ADR 0202).
     pub(crate) spectator: bool,
     /// An F10 row's look up to its sight (radians) and when it was asked, taken when the server's teleport lands
     /// within `play::SIGHT_S`, else dropped.
