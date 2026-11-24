@@ -226,9 +226,46 @@ pub fn aim(world: &World, eye: DVec3, dir: DVec3, reach: f64) -> Option<(Block, 
         if b == prev {
             continue;
         }
-        // a block drawn as a model (a torch, ADR 0117) is aimed at by its cell, though rays and walkers pass it
-        if b.pos.z >= 0 && BLOCKS.get(world.block(b)).is_some_and(|d| d.solid || d.model.is_some()) {
+        if aimed(world, b) {
             return Some((b, prev));
+        }
+        prev = b;
+    }
+    None
+}
+
+/// Whether cell b stops an aim: a solid block, or one drawn as a model (a torch, ADR 0117), aimed at by its cell
+/// though rays and walkers pass it.
+fn aimed(world: &World, b: Block) -> bool {
+    b.pos.z >= 0 && BLOCKS.get(world.block(b)).is_some_and(|d| d.solid || d.model.is_some())
+}
+
+/// What the look-at panel names (draft 2026-11-24, "Felt temperature"): the block `aim` meets, or a fluid's cell
+/// and kind when the fluid's surface lies before it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Look {
+    Block(Block),
+    Fluid(Block, u8),
+}
+
+/// `aim`'s walk that also stops at a fluid (stored, or the sea, a river, a lake, a crater's lava): the first step
+/// into a fluid other than the one the eye is in. Looking from inside water sees through it to what is beyond.
+pub fn look(world: &World, eye: DVec3, dir: DVec3, reach: f64) -> Option<Look> {
+    let mut prev = world.block_at(eye);
+    if prev.pos.z >= 0 && BLOCKS.solid(world.block(prev)) {
+        return Some(Look::Block(prev));
+    }
+    let mine = world.fluid_at(eye);
+    let mut t = 0.0;
+    while t < reach {
+        t += 0.05;
+        let p = eye + dir * t;
+        let b = world.block_at(p);
+        if b != prev && aimed(world, b) {
+            return Some(Look::Block(b));
+        }
+        if let Some(k) = world.fluid_at(p).filter(|k| Some(*k) != mine) {
+            return Some(Look::Fluid(b, k));
         }
         prev = b;
     }
@@ -393,6 +430,34 @@ mod tests {
         assert_eq!(dig_time(&w, &Shape { min: below.pos, ..Shape::one(top) }), hard("stone"));
         let air = Block { pos: top.pos + IVec3::Z * 3, ..top };
         assert_eq!(dig_time(&w, &Shape::one(air)), 0.0);
+    }
+
+    /// The look-at target is a fluid when its surface lies before the block (water poured in a pit over stone,
+    /// looked down at), and the block when there is none.
+    #[test]
+    fn the_look_meets_a_fluid_before_the_block_under_it() {
+        for wet in [false, true] {
+            let mut w = World::new(256, 32, 1);
+            let b = w.bodies[0].clone();
+            let top = w.block_at(b.centre + DVec3::Z * (b.height(DVec3::Z) - 0.5));
+            let at = |dz: i32| Block { pos: top.pos + IVec3::Z * dz, ..top };
+            w.set_block(at(-2), BLOCKS.id("stone"));
+            for dz in -1..4 {
+                w.set_block(at(dz), AIR);
+            }
+            if wet {
+                let World { bodies, edits, water, sky, time, .. } = &mut w;
+                let g = crate::world::Solid::at(bodies, edits, sky, *time);
+                let c = World::col(at(0));
+                water.regap(&g, c);
+                assert!(water.pour(&g, c, at(-1).pos.z, crate::liquid::U));
+            }
+            let eye = w.block_centre(at(3));
+            let down = (b.centre - eye).normalize();
+            assert_eq!(w.fluid_at(eye), None, "the eye stands in the air");
+            let want = if wet { Look::Fluid(at(-1), crate::fluids::WATER) } else { Look::Block(at(-2)) };
+            assert_eq!(look(&w, eye, down, 6.0), Some(want), "wet {wet}");
+        }
     }
 
     #[test]

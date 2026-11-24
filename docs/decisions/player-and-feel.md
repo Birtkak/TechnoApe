@@ -262,6 +262,36 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
 - shortcut: a face reaching over its cell's side is hit only from within its cell [0144].
 - Open: whether right click should also gather by sweeping while held; thinner outline for tiny things [0144].
 
+### Felt temperature, and the look-at panel names fluids with heat and hardness [draft, 2026-11-24]
+`World::felt(point, live)` (engine `world/felt.rs`) is the temperature felt at a point: the air there by
+`Ground::air` (above ground the weather's live `Air.temp` the server sends, else the baked climate with the season
+and the hour; under ground whatever the air rule gives, so the rock's heat flows in when that rule blends toward it),
+plus radiant heat. On a body without air it is the ground's temperature at the surface under the point
+(`Body::rest_heat` at the column's top cell; `liquid::AMBIENT` without a map), radiant heat on top. Radiant heat: each
+hot surface within `REACH` 24 m (a live crater's lake, a patch a column at its chamber's heat; stored glowing fluid's
+top cells at the node's heat where the world keeps it, else its row's `heat.pour`) adds the small patch's
+irradiance sigma eps (Ts^4 - Ta^4) A cos / (pi r^2); the sum over `FILM` 8 W/m2K (a clothed person's combined
+convective and radiative coefficient, ASHRAE Fundamentals ch. 9) is the rise; the felt value is held under the
+hottest source. At most `MOST` 256 sources, the nearest, each only when the straight line to it passes no block that
+is solid and opaque (water, glass, leaves and plants let heat through), walked in 0.5 m steps. Fire (0191) adds its
+cells' faces in the one marked place once it is built. The client works it out with the look-at target every
+`SENSE_S` 0.25 s (`App::sense`), on the frame thread.
+The HUD shows it after the compass line's place text as `12.4 C` (the font has no degree sign); F3's World group a
+`Felt` row (the air and the radiant part); the run's JSON `"felt":{temp,air,radiant}` and `"look":{name,note}`; a
+bot's `report` `"felt"`.
+The look-at panel's target is `edit::look`: `edit::aim`'s walk that stops also at the first step into a fluid other
+than the one the eye is in (the sea, a river, a lake, a crater's lava, stored water, lava, oil). A block's lines: its
+name; its temperature (in the generated ground under its top cell the rock's `rest_heat`, the top cell and what is over it the air's
+there; a fluid's frozen block
+at most its freeze point), `hardness` and `tool` of its `data/blocks.toml` row, light and metal. A fluid's: its row's
+name (`Sea water` where `World::salt`), its temperature (water by its place, not under its freeze point; generated
+fluid by `rest_heat`; stored lava and oil at the node's heat where kept, else the row's pour heat) and depth.
+No wire change: a client keeps no node's heat, so stored lava reads its pour heat until it freezes.
+- shortcut: a wall blocks all radiant heat and passes none by conduction, until blocks' rows carry conductivity, heat
+  capacity and emissivity (the gases-and-fire step: insulation, rooms holding heat).
+- shortcut: stored fluid is looked for on the point's face only (as `fluid_lamps`).
+Open: a message for the looked-at node's heat if the pour heat misleads; the felt value feeding body temperature.
+
 ## The journal
 
 - The event list (journal step 1) [0149]: `engine::events::Event`, a typed enum; `ToClient::Events(Vec<Event>)` is
