@@ -5,7 +5,8 @@
 # over the sea (and above it the first layer goes on up to the soil); the last layer's metres are 0: it goes
 # to the bottom of the crust (about 192 m), where the mantle takes over. A valley cuts down through the layers, and a cliff shows their bands.
 # `fold`: [metres, wavelength in metres]: how far the layers wave up and down and how wide the waves are.
-# `heat`: how much warmer the rock is a metre deeper, degrees C (the year's mean air at the surface on top).
+# `heat`: how much warmer the rock is a metre deeper at the top, degrees C (the year's mean air at the surface on top);
+# from generation 11 deeper down the sphere's steady conduction from it, heat R d / (R - d) (`Body::geotherm`).
 # `caves`: "limestone" (water-cut systems along the water table, where limestone holds it), "tubes" (lava
 # tubes a few metres under basalt ground: a rift's, or an island's of oceanic crust) or "none".
 # `flow` (optional; worlds of generation 2 on, ADR 0160-generation-number-and-arc-basalt): lava flows lying over

@@ -900,3 +900,46 @@ fn the_cloud_tops_hold_a_falling_player() {
         assert!(p.pos.distance(at) > 1.0, "{deep} m in: it walks on");
     }
 }
+
+/// A province's surface gradient, C/m, from `data/rocks.toml`.
+fn gradient(name: &str) -> f32 {
+    crate::rock::ROCKS.provinces.iter().find(|p| p.name == name).unwrap().heat
+}
+
+/// The geotherm (generation 11, `Body::geotherm`): a sphere's steady conduction from the province's gradient at the
+/// top, g R d / (R - d), worked by hand for the 4 km Terra (R 4245.43 m, her core's top 1243.46 m down at R / sqrt 2)
+/// under a shield (0.12 C/m) and an arc (0.35); held at the core top's value under it; generation 10 the line.
+#[test]
+fn the_geotherm_is_a_spheres_steady_conduction_from_the_provinces_gradient() {
+    let mut b = Body::new(DVec3::ZERO, 6144, 1);
+    b.gen = GEOTHERM;
+    let (r, core) = (b.radius, b.interior.zones[crate::interior::OUTER_CORE].outer);
+    assert!((r - 4245.43).abs() < 0.01 && (r - core - 1243.46).abs() < 0.01, "R {r}, core top {core}");
+    for (p, want) in [("shield", [6.072, 25.187, 156.975, 211.022]), ("volcanic arc", [17.709, 73.461, 457.844, 615.480])] {
+        let g = gradient(p);
+        for (d, t) in [50.0, 200.0, 1000.0, r - core].into_iter().zip(want) {
+            let got = b.geotherm(g, r, r - d);
+            assert!((got - t).abs() < 0.01, "{p}, {d} m down: {got} C over the ground, by hand {t}");
+        }
+        assert_eq!(b.geotherm(g, r, core - 100.0), b.geotherm(g, r, core), "held at the core's top under it");
+        assert_eq!(b.geotherm(g, r, r + 5.0), 0.0, "nothing over the top");
+    }
+    b.gen = VOLCANOES;
+    assert_eq!(b.geotherm(0.12, r, r - 1000.0), 0.12 * 1000.0, "generation 10: the line, to the bit");
+}
+
+/// Luna by the same rule from her own rows (her mare's 0.02 C/m, her radius, her small core a fifth of it): a far
+/// shallower curve than Terra's shield at every depth; by hand 4.842 C at 200 m and 91.98 at her core's top 919.84 m down.
+#[test]
+fn lunas_geotherm_is_shallower_than_terras_by_the_same_rule() {
+    let w = World::with_grid(6144, crate::bodies::moon_columns(6144), 1, None, None, 0.0, GENERATION);
+    let (terra, luna) = (&w.bodies[0], &w.bodies[1]);
+    let (gt, gl) = (gradient("shield"), gradient("mare"));
+    let (rl, cl) = (luna.radius, luna.interior.zones[crate::interior::OUTER_CORE].outer);
+    assert!((rl - 1149.80).abs() < 0.01 && (rl - cl - 919.84).abs() < 0.01, "Luna's R {rl}, core top {cl}");
+    let (at200, core) = (luna.geotherm(gl, rl, rl - 200.0), luna.geotherm(gl, rl, cl));
+    assert!((at200 - 4.842).abs() < 0.01 && (core - 91.98).abs() < 0.01, "{at200} C at 200 m, {core} C at her core's top");
+    for d in [10.0, 50.0, 200.0, 900.0] {
+        assert!(luna.geotherm(gl, rl, rl - d) < terra.geotherm(gt, terra.radius, terra.radius - d), "{d} m down");
+    }
+}

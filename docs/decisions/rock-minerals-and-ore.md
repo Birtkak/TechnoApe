@@ -74,6 +74,22 @@ brackets are the ADRs (`archive/NNNN-*.md`) a decision came from; INDEX.md lists
   change it. The planet's surface g is used on every body (a shortcut until Luna's own deep). [0158]
 - Nothing reads the field yet except the mineral windows (air, liquids, collapse, suits are the next steps). [0158]
 
+### The geotherm: a sphere's steady conduction from the province's gradient [draft, 2026-11-24]
+From generation 11 (`world::GEOTHERM`) the rock's heat is the year's mean air at the top plus `Body::geotherm`:
+g R d / (R - d) = g R (R - r) / r, the steady conduction of a sphere (T = a + b / r) whose gradient at the top is the
+province's `heat` g (its heat flow over the rock's conductivity), R the top's radius (the ground in `Body::heat`, the
+sea's level in `Body::rock`). Under the core's top (`iron` x R) it holds that value: the core convects. Every reader goes
+through it: the deep minerals' windows, the mantle's rock, generated lava, lava cooling, water boiling, `report=1`.
+Volcanoes add their chamber and conduit on top (`volcano_heat`). Before 11 the straight line g d, to the bit.
+The developer's call (2026-11-24): today's gradients with the real curve; a gradient from the body's real interior
+temperature (Earth's core top about 3700 C) over its depth in blocks was rejected: 2.1 C/m, water boils 40 m down.
+4 km planet over the air, shield / arc: 6.1 / 17.7 C at 50 m, 25.2 / 73.5 at 200 m, 157 / 458 at 1000 m, 211 / 615
+at the core's top 1243 m down (the line: 149 / 435). Luna's 0.02 C/m: 1.0 at 50 m, 4.8 at 200 m, 92 at her core's top
+920 m down (her core a fifth of her radius makes the curve rise five-fold there; the line 18).
+Seed 1: diamond's 8 bodies stay 8 (586 to 671 m before, 587 to 656 after); the mantle's tops under a shield / a rift
+move by 1 to 25 m (ringwoodite 536 / 603 to 540 / 622 m, bridgmanite 907 / 829 to 896 / 804): no row's window moved.
+Alternatives rejected: a new number per body (an interior temperature): not needed for this rule.
+
 ## Ore bodies
 - Ore is counted objects placed from the map and the seed when the planet loads (`ore.rs`, `data/minerals.toml`),
   the same on the server and every client. Kinds have a shape (lump, vein, seam, layer, blanket, cap, bog, gravel),

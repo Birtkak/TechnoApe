@@ -338,6 +338,10 @@ mod tests {
 
     /// A world of generation 10 on the first small planet with a live volcano; `dead`: the same map with it dead.
     fn world(dead: bool) -> World {
+        world_of(dead, VOLCANOES)
+    }
+    /// `world` in a world of generation `gen`.
+    fn world_of(dead: bool, gen: u8) -> World {
         let (seed, map) = crate::bake::volcano::tests::live_seed();
         let map = if dead {
             let mut m = Map::from_bytes(&map.to_bytes()).unwrap();
@@ -346,7 +350,7 @@ mod tests {
         } else {
             map
         };
-        World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, VOLCANOES)
+        World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, gen)
     }
     fn live(w: &World) -> Crater {
         w.bodies[0].craters().iter().find(|c| c.heat > 0.0).expect("a live volcano").clone()
@@ -658,6 +662,32 @@ mod tests {
         }
         assert!(w.water.froze.is_empty() && w.water.counted_of(kind) == U, "froze {:?}, counted {}", w.water.froze, w.water.counted_of(kind) / U);
         assert!(w.water.heats().iter().all(|h| h.2.t > lava().1 as f64), "every heat held is over the freeze point");
+    }
+
+    /// The geotherm under the volcanoes (generation 11): with every volcano dead the rock's heat is the year's air plus
+    /// `geotherm` by the province, exactly; with one live its chamber is its row's heat and the far side of the planet is
+    /// that curve plus the chamber's faint R / r; a generation 10 world reads the straight line it read, to the bit.
+    #[test]
+    fn far_from_a_live_chamber_the_rock_is_the_plain_geotherm_and_in_it_the_chambers_heat() {
+        let (live_w, dead_w, old) = (world_of(false, GEOTHERM), world_of(true, GEOTHERM), world_of(true, VOLCANOES));
+        let c = live(&live_w);
+        let b = &dead_w.bodies[0];
+        let (f, i, j) = (c.face ^ 1, c.at.0 as i32, c.at.1 as i32);
+        let ground = b.col_height(f, i, j);
+        let (air, g) = (b.year_air(f as usize, i, j).unwrap(), ROCKS.provinces[b.col_rock(f, i, j).province as usize].heat);
+        for d in [5.0, 20.0, 40.0] {
+            let z = b.layer_of(ground - d);
+            let plain = air + b.geotherm(g, ground, b.layer_r(z));
+            assert_eq!(b.heat(f, i, j, z), Some(plain), "{d} m down, every volcano dead: the curve");
+            assert!(plain > air + g * (ground - b.layer_r(z)) as f32, "{d} m down: over the line");
+            let t = live_w.bodies[0].heat(f, i, j, z).unwrap();
+            assert!(t >= plain && t - plain < 0.02 * (c.heat - plain), "{d} m down, a live chamber a planet away: {t} C, the curve {plain}");
+            assert_eq!(old.bodies[0].heat(f, i, j, z), Some(air + g * (ground - b.layer_r(z)).max(0.0) as f32), "generation 10: the line");
+        }
+        let lb = &live_w.bodies[0];
+        let mid = lb.layer_of(c.chamber.length());
+        let t = lb.heat(c.face, c.at.0.floor() as i32, c.at.1.floor() as i32, mid).unwrap();
+        assert!((t - c.heat).abs() < 1e-3, "{t} C in the chamber, its row's {}", c.heat);
     }
 
     /// The heat (volcanoes.md, the rule): all of the chamber's heat in it, over lava's freeze point, and round it the
