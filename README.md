@@ -15,10 +15,12 @@ Recorded from the game itself, as it runs today.
 
 | | |
 |:---:|:---:|
-| ![Terra turning, day into night](docs/media/terra.gif) | ![Clouds and their shadows over a coast](docs/media/clouds.gif) |
-| **Terra**, baked from a seed, turning from day into night | **Weather:** clouds and their shadows drifting over a coast |
+| ![Terra turning, day into night](docs/media/terra.gif) | ![Clouds and their shadows over a desert](docs/media/clouds.gif) |
+| **Terra**, baked from a seed, turning from day into night | **Weather:** clouds and their shadows drifting over a desert |
 | ![The aurora](docs/media/aurora.gif) | ![Luna turning through her phases](docs/media/luna.gif) |
 | **The aurora**, drawn from the planet's magnetic field | **Luna:** craters and maria, turning through her phases |
+| ![Mars turning](docs/media/mars.gif) | ![Jupiter turning](docs/media/jupiter.gif) |
+| **Mars:** rust highlands, canyons and ice caps | **Jupiter**, the banded giant the moons circle |
 
 ## Status
 
