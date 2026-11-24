@@ -22,7 +22,6 @@ pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Home at noon, in survival", &["/goto terra", "/time set noon", "/playmode survival"], "Back at the spawn, at noon."),
 ];
 
-/// acts="2:C,2.5:c,3:R,3.5:r": (seconds after load, action), sorted so the soonest is last.
 /// What the look-at panel shows (draft 2026-11-24, "Felt temperature"): its target, the name and the note under it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Looked {
@@ -31,8 +30,31 @@ pub(crate) struct Looked {
     pub(crate) note: String,
 }
 
-/// Seconds between two workings-out of the felt temperature and the look-at panel's lines.
+/// Seconds between two workings-out of the felt temperature and the look-at panel's lines (sooner when the aimed
+/// cell or its block changes).
 pub(crate) const SENSE_S: f64 = 0.25;
+
+/// What the eye senses (draft 2026-11-24, "Felt temperature"): the felt temperature's rays, marched a few a frame
+/// (`World::march`), the last whole set, the value worked out from it, and the look-at panel's lines.
+#[derive(Default)]
+pub(crate) struct Sensed {
+    /// The set being marched, and where it began.
+    rays: Option<(DVec3, engine::world::Rays)>,
+    /// The last whole set, and where it began.
+    done: Option<(DVec3, engine::world::Rays)>,
+    pub(crate) felt: Option<engine::world::Felt>,
+    pub(crate) looked: Option<Looked>,
+    /// When the value and the lines were made, and for which aimed cell and its block.
+    at: Option<(Instant, Option<(Block, u16)>)>,
+    /// The eye and where it looks, every frame of every run: the run's last line works its felt temperature and
+    /// lines out from it once.
+    pub(crate) eye: Option<(DVec3, DVec3)>,
+}
+
+/// A set of rays begun farther than this from the eye, m, is begun again; a whole set from farther than `FORGET_M`
+/// is forgotten (a teleport: the air's alone until a set is whole).
+const RESTART_M: f64 = 8.0;
+const FORGET_M: f64 = 32.0;
 
 /// The look-at panel's lines for target `look`, `live` the weather's air at the eye: a block's name and its
 /// temperature, hardness, the tool it wants and what else it is; a fluid's name (sea water by the sea's salt), its
@@ -70,20 +92,47 @@ fn capital(s: &str) -> String {
 }
 
 impl App {
-    /// The felt temperature at the eye and the look-at target's lines, again when `SENSE_S` has passed: the HUD and
-    /// F3 read them, the run's JSON prints them.
+    /// The felt temperature at the eye and the look-at target's lines (run=play, where the HUD shows them): the
+    /// rays a few a frame under `FRAME_PROBES` cells, the value from the last whole set; the lines again when the
+    /// aimed cell or its block changes, else every `SENSE_S`, the fluid test (`edit::look`) with them, so a name and
+    /// its note are always one target's.
     pub(crate) fn sense(&mut self, p: &Pose) {
-        if self.sensed.as_ref().is_some_and(|s| s.0.elapsed().as_secs_f64() < SENSE_S) || self.world.bodies.is_empty() {
+        if self.world.bodies.is_empty() {
             return;
         }
         // the live air is the home's, where the player stands on it
         let live = self.air.filter(|_| self.world.frame_at(p.pos) == 0).map(|a| a.temp as f64);
-        let felt = self.world.felt(p.pos, live);
-        let look = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).map(|l| looked(&self.world, l, live));
-        self.sensed = Some((Instant::now(), felt, look));
+        let s = &mut self.sensed;
+        if s.rays.is_some_and(|(at, _)| at.distance(p.pos) > RESTART_M) {
+            s.rays = None;
+        }
+        if s.done.is_some_and(|(at, _)| at.distance(p.pos) > FORGET_M) {
+            s.done = None;
+        }
+        let (at, r) = s.rays.get_or_insert((p.pos, engine::world::Rays::default()));
+        self.world.march(p.pos, r, engine::world::FRAME_PROBES);
+        if r.done == engine::world::RAYS {
+            s.done = Some((*at, *r));
+            s.rays = None;
+        }
+        let key = self.aim.map(|(b, _)| (b, self.world.block(b)));
+        if s.at.is_none_or(|(t, k)| k != key || t.elapsed().as_secs_f64() >= SENSE_S) {
+            s.felt = Some(self.world.felt_of(p.pos, live, &s.done.map(|d| d.1).unwrap_or_default()));
+            s.looked = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).map(|l| looked(&self.world, l, live));
+            s.at = Some((Instant::now(), key));
+        }
+    }
+
+    /// The felt temperature and the look-at panel's lines at the run's last eye, all rays at once: the run's JSON,
+    /// off the measured frames.
+    pub(crate) fn sensed_at_end(&self) -> (Option<engine::world::Felt>, Option<Looked>) {
+        let Some((pos, fwd)) = self.sensed.eye.filter(|_| !self.world.bodies.is_empty()) else { return (None, None) };
+        let live = self.air.filter(|_| self.world.frame_at(pos) == 0).map(|a| a.temp as f64);
+        (Some(self.world.felt(pos, live)), edit::look(&self.world, pos, fwd, AIM_REACH).map(|l| looked(&self.world, l, live)))
     }
 }
 
+/// acts="2:C,2.5:c,3:R,3.5:r": (seconds after load, action), sorted so the soonest is last.
 pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     let mut v: Vec<(f64, String)> =
         s.split(',').filter_map(|e| e.trim().split_once(':')).filter_map(|(t, a)| Some((t.parse().ok()?, a.to_string()))).collect();
@@ -879,14 +928,14 @@ impl App {
             None => "no air reading here".into(),
         };
         let sea = b.over_sea(pos).map_or(String::new(), |h| format!(", {h:.1} m over the sea"));
-        let look = match self.sensed.as_ref().and_then(|s| s.2.as_ref()) {
+        let look = match &self.sensed.looked {
             Some(l) => {
                 let (edit::Look::Block(hit) | edit::Look::Fluid(hit, _)) = l.what;
                 format!("{}: {} (face {}, {} {}, layer {})", l.name, l.note, hit.face, hit.pos.x, hit.pos.y, hit.pos.z)
             }
             None => "nothing in reach".into(),
         };
-        let felt = self.sensed.as_ref().map_or("not yet".into(), |s| format!("{:.1} °C: the air {:.1} °C, mean radiant {:.1} °C", s.1.temp, s.1.air, s.1.mrt));
+        let felt = self.sensed.felt.map_or("not yet".into(), |f| format!("{:.1} °C: the air {:.1} °C, mean radiant {:.1} °C", f.temp, f.air, f.mrt));
         let (yaw, pitch) = stand_angles(w.up_at(pos), fwd);
         let tool = if self.bucket { "bucket" } else if self.hammer { "build hammer" } else { "hands" };
         let tool = if self.flying { format!("{tool}, flying {:.0} m/s", self.fly_speed) } else { tool.to_string() };
@@ -1568,9 +1617,9 @@ impl App {
                 let marks: Vec<(f64, [f32; 3], usize)> = here.iter().map(|(p, at, _)| (nav::bearing(up, *at - eye), colour(p), p.icon)).collect();
                 let heading = nav::bearing(up, fwd);
                 let text = if self.creative { format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius) } else { b.name.clone() };
-                // the felt temperature at the eye beside the place (the font has no degree sign: "C")
-                let text = match &self.sensed {
-                    Some(s) => format!("{text}  {:.1} °C", s.1.temp),
+                // the felt temperature at the eye beside the place
+                let text = match &self.sensed.felt {
+                    Some(f) => format!("{text}  {:.1} °C", f.temp),
                     None => text,
                 };
                 label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
@@ -1612,8 +1661,9 @@ impl App {
             }
         }
         // what the crosshair is on (the developer, 2026-11-11), when no menu or overlay is over the top
-        // (its lines worked out a few times a second, `sense`: a block's temperature and hardness, a fluid's name)
-        if let (Some(l), None, false) = (self.sensed.as_ref().and_then(|s| s.2.as_ref()), self.menu, self.f3 || title) {
+        // (its lines from `sense`, made again in this frame when the aimed cell or its block changed, else every
+        // `SENSE_S`: a block's temperature and hardness, a fluid's name)
+        if let (Some(l), None, false) = (&self.sensed.looked, self.menu, self.f3 || title) {
             match l.what {
                 edit::Look::Block(hit) => {
                     if let Some(d) = BLOCKS.get(self.world.block(hit)) {

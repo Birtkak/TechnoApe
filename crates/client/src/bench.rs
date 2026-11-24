@@ -318,6 +318,8 @@ impl App {
         }
         self.done = true;
         self.globe_save();
+        // the felt temperature at the eye and the look-at panel's lines when the run ended, all rays at once
+        let (felt, look) = self.sensed_at_end();
         let gpu = self.gpu.as_ref().unwrap();
         let s = &mut self.samples;
         let secs: f64 = s.frame_ms.iter().map(|v| *v as f64).sum::<f64>() / 1000.0;
@@ -370,9 +372,8 @@ impl App {
             pct(&mut s.acq_ms, 0.5),
             s.edits as f64 / secs.max(1e-9),
             job_us,
-            // the felt temperature at the eye and the look-at panel's lines when the run ended (`App::sense`)
-            self.sensed.as_ref().map_or("null".into(), |s| format!("{{\"temp\":{:.2},\"air\":{:.2},\"mrt\":{:.2}}}", s.1.temp, s.1.air, s.1.mrt)),
-            self.sensed.as_ref().and_then(|s| s.2.as_ref()).map_or("null".into(), |l| format!("{{\"name\":{:?},\"note\":{:?}}}", l.name, l.note)),
+            felt.map_or("null".into(), |f| format!("{{\"temp\":{:.2},\"air\":{:.2},\"mrt\":{:.2}}}", f.temp, f.air, f.mrt)),
+            look.map_or("null".into(), |l| format!("{{\"name\":{:?},\"note\":{:?}}}", l.name, l.note)),
             self.edits_done,
             self.edits_applied,
             self.players,

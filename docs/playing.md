@@ -24,8 +24,8 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   10 km/s (ADR 0073); F3 the overlay of
   numbers (its World group's `Felt` row: the felt temperature at the eye, the air's and the mean radiant temperature; Position's
   `Looking at` the look-at panel's lines); the compass line ends with the felt temperature at the eye, `12.4 °C` (the
-  operative temperature of the air and the heat of lava in sight: a crater's lake out to 512 m, poured lava within 24 m;
-  a wall blocks it), worked out four times a second; the look-at panel
+  operative temperature of the air and the heat of lava in sight within 48 m, by 384 rays a few a frame, a set in about half a second;
+  a wall blocks it; in lava, the lava's), worked out four times a second; the look-at panel
   under the compass names the block or the fluid (the sea's water, a river, lava, oil) the crosshair meets first, with its
   temperature and, for a block, its hardness and tool, for a fluid its depth; a run's JSON carries `"felt"` and `"look"`, a
   bot's `report` `"felt"`; F9 a bug report; F10 the playtest menu (an eclipse of the sun or of Luna, ADR 0036); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,

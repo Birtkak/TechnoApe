@@ -297,7 +297,11 @@ impl App {
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
         self.last_pos = p.pos;
         if self.home() != Menu::Title && self.loaded_at.is_some() {
-            self.sense(&p);
+            self.sensed.eye = Some((p.pos, p.fwd));
+            // (only where the HUD shows it: a benchmark run works it out once at its end)
+            if self.run == "play" {
+                self.sense(&p);
+            }
         }
         lap!("pose");
 

@@ -703,7 +703,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         hammer: false,
         bucket: false,
         aim: None,
-        sensed: None,
+        sensed: Default::default(),
         held: None,
         aim_thing: None,
         taking: None,
