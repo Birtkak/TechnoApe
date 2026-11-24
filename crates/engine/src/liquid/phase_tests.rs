@@ -309,13 +309,49 @@ fn stored_sea_under_freezing_air_takes_no_heat_sets_no_ice_and_stores_no_more_co
     assert!(w.stored() <= n, "{} columns stored, {n} at first", w.stored());
 }
 
-/// Less than a block of water never freezes (decision B): a puddle of 2000 units at -30 C for 23 game days holds
-/// all its units liquid and nothing is booked as ice.
+/// Less than a block of water freezes in eighths (ADR 0189's draft; decision B kept it liquid): a puddle of 2000 units
+/// at -30 C for 23 game days is ice through, shown as 3 eighths (2000 x 8 / 4096 = 3.9) on its top, its units still the
+/// node's and nothing booked as ice; no block is set.
 #[test]
-fn a_puddle_short_of_a_block_never_freezes() {
+fn a_puddle_short_of_a_block_freezes_in_eighths_and_keeps_its_units() {
     let (mut g, mut w) = pond(3, -30.0, ATM, 2000);
     let set = run(&mut g, &mut w, 2e6, 600.0, 0);
     assert_eq!((set, w.total(), frozen(&w)), (0, 2000, 0));
+    assert_eq!(w.ice_layers(), vec![(col(0, 0), 2000, 3)], "three eighths of ice on its top");
+}
+
+/// A puddle of a third of a block (1365 units) under -10 C air freezes in eighths, one after another, to two (2.67),
+/// then in +5 C air melts back through them to exactly its 1365 units of water, no ice left.
+#[test]
+fn a_puddle_of_a_third_of_a_block_freezes_in_eighths_and_melts_back_to_exactly_its_water() {
+    let (mut g, mut w) = pond(3, -10.0, ATM, U / 3);
+    let shown = |w: &Liquids| w.ice_layers().first().map_or(0, |x| x.2);
+    let (mut seen, mut t) = (vec![0u8], 0.0);
+    while t < 2e5 {
+        run(&mut g, &mut w, 60.0, 60.0, 0);
+        t += 60.0;
+        if shown(&w) != *seen.last().unwrap() {
+            seen.push(shown(&w));
+            eprintln!("{} eighths of ice at {t:.0} s", shown(&w));
+        }
+    }
+    assert_eq!(seen, vec![0, 1, 2], "it froze an eighth at a time to two");
+    g.air = (5.0, ATM);
+    run(&mut g, &mut w, 2e4, 60.0, 0);
+    assert_eq!((shown(&w), w.total(), frozen(&w), w.heats().len()), (0, U / 3, 0, 0), "melted back to exactly its water");
+}
+
+/// Eight eighths of ice are the ice block: a pond of a block and a half at -30 C shows 1 to 7 eighths of ice on its top,
+/// then its top cell is set as one ice block (the old rule), the rest freezing on under it.
+#[test]
+fn eight_eighths_of_ice_become_the_ice_block() {
+    let (mut g, mut w) = pond(4, -30.0, ATM, 3 * U / 2);
+    let mut most = 0;
+    while g.ice.is_empty() {
+        run(&mut g, &mut w, 600.0, 600.0, 0);
+        most = most.max(w.ice_layers().first().map_or(0, |x| x.2));
+    }
+    assert_eq!((most, g.ice.clone(), frozen(&w)), (7, vec![(0, 0, 1)], U), "seven eighths, then the block");
 }
 
 /// A pond a block and a half deep at -30 C ends as one ice block in its top cell over half a block of water.

@@ -148,6 +148,23 @@ impl Phases {
             0.622 * H_AIR / (CP_AIR * p) * ps
         }
     }
+    /// Units a second its solid sublimates from `area` m^2 of surface in air at `ta` C and `p` Pa under the triple
+    /// point's pressure, taking `ha` W/(m^2 K) from the air and `src` W from a hot fluid beside it: what carries the real
+    /// latent heat away at the pace, paid for from the block's stored (a `LIGHT`th), so HEAT_PACE x LIGHT times the real
+    /// mass flux; the surface where it balances the heat coming in is the real one. (An ice block's, `thaw`; snow's.)
+    pub fn sublimation(&self, ha: f64, area: f64, ta: f64, p: f64, src: f64) -> f64 {
+        let vap = |ts: f64| self.flux(ts, p) * area * HEAT_PACE * LIGHT / self.mu;
+        let (mut lo, mut hi) = (1.0 - T0K, self.tf);
+        for _ in 0..48 {
+            let ts = 0.5 * (lo + hi);
+            if ha * area * (ta - ts) + src > vap(ts) * (self.lf + self.lv) {
+                lo = ts;
+            } else {
+                hi = ts;
+            }
+        }
+        vap(0.5 * (lo + hi))
+    }
 }
 
 impl Liquids {
@@ -161,6 +178,24 @@ impl Liquids {
     pub fn refreeze(&mut self, c: Col, z: i32, units: i64) {
         *self.froze.entry(crate::fluids::WATER).or_default() += units;
         self.ice.insert((c, z), U as f64);
+    }
+    /// Ice short of a block on stored water (ADR 0189, draft "Snow and ice in eighths"): every node of water whose frozen
+    /// progress (`Therm::frac`) makes at least an eighth of a block, as (column, its water's top in units, eighths
+    /// frozen, 1 to 7), sorted. Its units stay in the node, liquid and counted (the enthalpy method): only how much of it
+    /// is ice is shown, so it freezes and melts back to exactly its water; a whole block is the ice block, as before.
+    pub fn ice_layers(&self) -> Vec<(Col, i64, u8)> {
+        let mut v: Vec<(Col, i64, u8)> = self
+            .heat
+            .iter()
+            .map(|(&a, h)| (&self.nodes[a as usize], h))
+            .filter(|(n, _)| n.kind == crate::fluids::WATER && n.water > 0)
+            .filter_map(|(n, h)| {
+                let e = (h.frac.max(0.0) / (U / 8) as f64).floor().min(7.0) as u8;
+                (e > 0).then(|| (n.col, n.surface(), e))
+            })
+            .collect();
+        v.sort_unstable();
+        v
     }
     /// How many ice blocks are followed.
     pub fn watched_ice(&self) -> usize {
@@ -253,7 +288,8 @@ impl Liquids {
     /// block has frozen: then the block's U units leave the node, are booked to `froze`, and the block of ice goes to
     /// `out` (column, layer, water's kind) at the node's top cell, as `cool`'s basalt; a step that freezes several sets
     /// every one, downward from there. While a block waits for its cell (`waiting`, a player in it) the node freezes no
-    /// further. shortcut: less than a block of water never freezes, until partial layers (ADR 0189).
+    /// further. Short of a block, what froze is shown as ice in eighths on its top (`ice_layers`), its units still the
+    /// node's (ADR 0189's draft).
     pub(super) fn water_heat(&mut self, g: &impl Ground, a: u32, mut h: Therm, dt: f64, ph: &Phases, out: &mut Vec<(Col, i32, u8)>) -> Option<Therm> {
         let water = crate::fluids::WATER;
         let n = &self.nodes[a as usize];
@@ -437,20 +473,7 @@ impl Liquids {
             let gone = if p >= ph.pt {
                 (ha * area * (ta - ph.tf) + src).max(0.0) * dt / ph.lf
             } else {
-                // units a second leaving its surface at ts: what carries the real latent heat away at the pace, paid
-                // for from the block's stored (a `LIGHT`th), so HEAT_PACE x LIGHT times the real mass flux; the surface
-                // where it balances the heat coming in is the real one
-                let vap = |ts: f64| ph.flux(ts, p) * area * HEAT_PACE * LIGHT / ph.mu;
-                let (mut lo, mut hi) = (1.0 - T0K, ph.tf);
-                for _ in 0..48 {
-                    let ts = 0.5 * (lo + hi);
-                    if ha * area * (ta - ts) + src > vap(ts) * (ph.lf + ph.lv) {
-                        lo = ts;
-                    } else {
-                        hi = ts;
-                    }
-                }
-                vap(0.5 * (lo + hi)) * dt
+                ph.sublimation(ha, area, ta, p, src) * dt
             };
             let m = m + gone;
             if m < U as f64 {

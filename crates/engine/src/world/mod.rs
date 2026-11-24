@@ -634,6 +634,9 @@ pub struct World {
     pub models: FxMap<Block, u16>,
     /// Water (ADR 0020): on the server it flows; a client keeps the server's copy.
     pub water: Liquids,
+    /// Snow, and ice and rock short of a block, in eighths (ADR 0189's draft): the server's live columns; what every
+    /// column shows, a client's copy from the wire.
+    pub snow: crate::snow::Snow,
     /// The ore left in each of the planet's bodies (ADR 0063), blocks, as edits change it: the server's, opened
     /// with `open_ledger` before any edit; None where nothing counts it (a client).
     pub ore_left: Option<Vec<i64>>,

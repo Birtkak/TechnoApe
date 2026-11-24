@@ -188,6 +188,10 @@ pub enum ToClient {
     /// This player's journal entries that changed state (`journal`, draft ADR journal-data), by name; once
     /// it has its name (`Hello`), every entry not unknown, then each change at the end of its tick.
     Journal(Vec<(String, crate::journal::State)>),
+    /// Snow, and ice and rock short of a block, in eighths (ADR 0189's draft, `snow::Seen`): every column that shows
+    /// some on join, then the columns whose eighths changed (None: nothing shows), at most once a second. Last of the
+    /// variants, so an older server never sends it and an older client is never sent it by one of its own age.
+    Layers(Vec<(crate::liquid::Col, Option<crate::snow::Seen>)>),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,
@@ -291,6 +295,10 @@ pub fn fits(world: &crate::world::World, m: &ToClient) -> bool {
         ToClient::Marks { death, home } => death.iter().chain(home).all(ok),
         ToClient::Digging { at, .. } => at.as_ref().is_none_or(|(s, _, _)| s.fits(world)),
         ToClient::Furnace { at, .. } => ok(at),
+        ToClient::Layers(v) => v.iter().all(|(c, s)| {
+            let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), s.map_or(0, |s| s.z)) };
+            ok(&b) && s.is_none_or(|s| crate::blocks::BLOCKS.get(s.block).is_some())
+        }),
         ToClient::Events(v) => v.iter().all(|e| e.cell().iter().chain(if let crate::events::Event::Fall { from, .. } = e { Some(from) } else { None }).all(ok)),
         _ => true,
     }

@@ -4936,3 +4936,79 @@ fn a_chamber_survives_a_save_and_a_save_without_it_loads() {
     let snap = quiet.snapshot();
     assert!(snap.chambers == save::Chambers::default() && snap.to_bytes() == postcard::to_allocvec(&snap).unwrap(), "no live volcano: the layout's bytes");
 }
+
+/// Lays three eighths on every live column of `s` with a place, taken from its air column's account as a snowfall
+/// takes them (the test's stand-in for an hour's heavy snow at a cold place).
+fn snow_on(s: &mut Server) -> Vec<Col> {
+    let e = 3 * engine::snow::EIGHTH;
+    let cols: Vec<Col> = s.world.snow.cols.iter().filter(|(_, l)| l.floor != engine::snow::NOWHERE).map(|(c, _)| *c).collect();
+    for &k in &cols {
+        let l = s.world.snow.cols.get_mut(&k).unwrap();
+        l.units += e;
+        let cell = l.cell;
+        s.world.snow.lent += e;
+        s.world.snow.owed.entry(cell).or_default().0 += e;
+    }
+    cols
+}
+
+/// Snow in eighths on the server (ADR 0189's draft): the columns round a player are live, three eighths laid on them
+/// are sent to the client, survive a save and a load, and leave the live set with every unit back to the air on a
+/// server with no player; two runs of one seed agree to the hash; both ledgers hold every tick; a dig on the ground
+/// under three eighths takes the snow and leaves the block.
+#[test]
+fn live_snow_is_sent_saved_reloaded_and_replays_to_the_same_hash() {
+    let start = || {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(1536, 32, 7, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        for _ in 0..TICK_HZ as u64 + 1 {
+            s.tick();
+        }
+        (s, c)
+    };
+    let (mut s, c) = start();
+    assert_eq!(s.world.snow.cols.len(), 33 * 33, "the live square round the player");
+    let cols = snow_on(&mut s);
+    drain(&c);
+    s.tick();
+    while s.tick % TICK_HZ as u64 != 1 {
+        s.tick();
+    }
+    assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0));
+    let sent: Vec<_> = drain(&c).into_iter().filter_map(|m| if let ToClient::Layers(v) = m { Some(v) } else { None }).flatten().collect();
+    assert!(sent.len() >= cols.len() * 9 / 10 && sent.iter().all(|(_, x)| x.is_some_and(|x| x.eighths >= 2)), "{} of {} columns sent", sent.len(), cols.len());
+    let snap = s.snapshot();
+    assert!(snap.snow != engine::snow::State::default() && snap.to_bytes().len() > postcard::to_allocvec(&snap).unwrap().len(), "a tail");
+    let mut back = Server::from_save(Save::from_bytes(&snap.to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.snow.state(), s.world.snow.state(), "the snow through the save");
+    assert_eq!(back.world.snow.seen, s.world.snow.seen, "and what it shows");
+    assert_eq!((back.air_ledger(), back.water_ledger()), (Some(0), 0));
+    for _ in 0..3 * TICK_HZ as u64 {
+        back.tick();
+        assert_eq!((back.air_ledger(), back.water_ledger()), (Some(0), 0), "tick {}", back.tick);
+    }
+    assert!(back.world.snow.cols.is_empty() && back.world.snow.lent == back.world.snow.owing(), "no player: all of it given back");
+    // two runs of one seed agree
+    let (mut again, _c2) = start();
+    snow_on(&mut again);
+    while again.tick < s.tick {
+        again.tick();
+    }
+    for _ in 0..30 * TICK_HZ as u64 {
+        s.tick();
+        again.tick();
+        assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
+    }
+    assert_eq!((again.hash(), again.world.snow.state()), (s.hash(), s.world.snow.state()), "two runs of one seed");
+    // a dig of the ground under three eighths takes the snow, not the block
+    let me = s.world.block_at(s.clients[0].phys.pos);
+    let (&k, l) = s.world.snow.cols.iter().filter(|(_, l)| l.units >= engine::snow::EIGHTH).min_by_key(|(k, _)| (k.i() - me.pos.x).abs() + (k.j() - me.pos.y).abs() + 1000 * (k.i() == me.pos.x && k.j() == me.pos.y) as i32).expect("snow left after 30 s");
+    let b = Block { body: 0, face: k.face(), pos: glam::IVec3::new(k.i(), k.j(), l.floor - 1) };
+    let was = s.world.block(b);
+    let mut changed = Vec::new();
+    assert!(s.edit(0, &engine::edit::Shape::one(b), AIR, &mut changed));
+    assert_eq!((s.world.block(b), s.world.snow.cols[&k].units, changed.len()), (was, 0, 0), "the snow went, the block stayed");
+    assert_eq!(s.water_ledger(), 0);
+}

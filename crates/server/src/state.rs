@@ -160,7 +160,8 @@ impl Server {
                 Err(e) => eprintln!("[technoape-server] the save's air does not fit its map ({e}): it starts from the map's"),
             }
         }
-        s.air0 = s.weather.as_ref().map_or(0, |w| w.ledger()) + s.world.water.rained as i128;
+        s.world.snow.restore(&save.snow);
+        s.air0 = s.weather.as_ref().map_or(0, |w| w.ledger()) + s.world.water.rained as i128 + (s.world.snow.lent - s.world.snow.owing()) as i128;
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
         // a save from before Luna's grid and the inertial frame moved in the shared coordinates (ADR 0041,
@@ -247,6 +248,7 @@ impl Server {
             kinds: self.world.water.heat_kinds(),
             chambers: (self.world.water.chambers.clone(), self.world.water.erupted),
             crust: self.world.water.crust.iter().map(|(&(c, k), &(f, u))| (c, k, f, u)).collect(),
+            snow: self.world.snow.state(),
         }
     }
 
@@ -298,7 +300,8 @@ impl Server {
     /// The air's ledger and the rain it handed the rivers, against where they started (W5): 0 while no unit of
     /// the air's water appears or vanishes; None without the live air.
     pub fn air_ledger(&self) -> Option<i128> {
-        Some(self.weather.as_ref()?.ledger() + self.world.water.rained as i128 - self.air0)
+        let snow = &self.world.snow;
+        Some(self.weather.as_ref()?.ledger() + self.world.water.rained as i128 + (snow.lent - snow.owing()) as i128 - self.air0)
     }
 
     /// Conservation (ADR 0020): water that differs from generation plus water in buckets, which only creative
@@ -309,7 +312,9 @@ impl Server {
         // steps 4 and 5)
         let w = &self.world.water;
         let (steam, ice) = (w.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0), w.froze.get(&engine::fluids::WATER).copied().unwrap_or(0));
-        w.counted() + steam + ice + held - (self.made - self.removed)
+        // (snow lying is counted water taken from the air's account: what it holds less what it took, ADR 0189's draft)
+        let snow = self.world.snow.held() - self.world.snow.lent;
+        w.counted() + steam + ice + held + snow - (self.made - self.removed)
     }
 
     /// Conservation of ore (ADR 0063): the bodies whose ledger differs from a recount from the edits, as
@@ -344,6 +349,11 @@ impl Server {
         }
         if !w.crust.is_empty() {
             h = fnv(h, &postcard::to_allocvec(&w.crust).unwrap());
+        }
+        // and the snow's (ADR 0189's draft): a world without any keeps its hashes
+        let snow = self.world.snow.state();
+        if snow != engine::snow::State::default() {
+            h = fnv(h, &postcard::to_allocvec(&snow).unwrap());
         }
         for c in &self.clients {
             let p = &c.phys;
