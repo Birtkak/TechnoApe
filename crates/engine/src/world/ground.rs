@@ -16,6 +16,12 @@ impl Body {
         Some(self.layer_of(self.radius - SEA_DEPTH + t as f64))
     }
 
+    /// Whether generation's open water (the sea, a river, a lake: the table's fixed heads) stands over column (i, j)'s
+    /// ground. (`water_at` gives the sea's level under dry land too.)
+    pub fn open_water(&self, face: u8, i: i32, j: i32) -> bool {
+        self.water_at(face, i, j).is_some_and(|w| w.0 > self.first_air(self.col_height(face, i, j)) as f64)
+    }
+
     /// The water generation puts in column (i, j)'s caves (ADR 0190, "caves below the table are flooded"): each cave
     /// whose floor lies under the table holds water up to it, a closed one full under it with the pressure share that
     /// gives its head the table's (`liquid::K`), a cave open to the sky up to the table in the open gap (never over the
@@ -27,7 +33,7 @@ impl Body {
             return Vec::new();
         }
         let Some(t) = self.table_at(face, i, j) else { return Vec::new() };
-        if self.water_at(face, i, j).is_some() || !self.lava_col(face, i, j).is_empty() {
+        if self.open_water(face, i, j) || !self.lava_col(face, i, j).is_empty() {
             return Vec::new();
         }
         let zs = self.first_air(self.col_height(face, i, j));
@@ -70,7 +76,7 @@ impl Body {
         let cell = b.map.cell(face as usize, mx, my);
         // (never over the generated ground: a gap there is the open air's, not a well)
         let table = self.table_at(face, i, j)?.min(self.first_air(self.col_height(face, i, j)) as f64);
-        if self.water_at(face, i, j).is_some() {
+        if self.open_water(face, i, j) {
             return None;
         }
         Some(Aq { table, ..self.aquifer_cell(cell as u64)? })

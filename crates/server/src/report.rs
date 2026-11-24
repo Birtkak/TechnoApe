@@ -325,25 +325,34 @@ fn ground_water(b: &engine::world::Body) -> String {
     let provinces: Vec<String> = (0..=engine::bake::rock::OCEAN as usize).filter(|&p| !by[p].is_empty()).map(|p| format!("\"{}\": {:.1}", NAMES[p], median(by[p].clone()))).collect();
     // the caves under the table: balls by their middle, and the columns that hold one
     let flooded = b.caves.iter().filter(|c| b.table_at(c.face as u8, c.at.x.floor() as i32, c.at.y.floor() as i32).is_some_and(|t| c.at.z < t)).count();
-    let (mut cave_cols, mut wet_cols) = (0u64, 0u64);
+    let (mut cave_cols, mut wet_cols, mut under_cols) = (0u64, 0u64, 0u64);
     for f in 0..6u8 {
         for i in (0..b.n).step_by(4) {
             for j in (0..b.n).step_by(4) {
-                if !b.col_caves(f, i, j).is_empty() {
+                let caves = b.col_caves(f, i, j);
+                if !caves.is_empty() {
                     cave_cols += 1;
                     wet_cols += !b.ground_water_col(f, i, j).is_empty() as u64;
+                    under_cols += b.table_at(f, i, j).is_some_and(|t| caves.iter().any(|c| (c.0 as f64) < t)) as u64;
                 }
             }
         }
     }
-    let (f, i, j) = b.locate(b.spawn);
-    let spawn = b.table_at(f as u8, i as i32, j as i32).map_or(f64::NAN, |t| b.layer_of(b.ground_r(f, i, j)) - t);
+    // the table's depth under the ground's top (the first open layer) at the spawn's column and in the 30 m round it
+    let (f, x, y) = b.locate(b.spawn);
+    let depth = |i: i32, j: i32| b.table_at(f as u8, i, j).map(|t| b.first_air(b.col_height(f as u8, i, j)) as f64 - t);
+    let (si, sj) = (x as i32, y as i32);
+    let spawn = depth(si, sj).unwrap_or(f64::NAN);
+    let mut ring: Vec<f64> = (-30..=30).flat_map(|di: i32| (-30..=30).map(move |dj: i32| (di, dj))).filter(|(di, dj)| di * di + dj * dj <= 900).filter_map(|(di, dj)| depth(si + di, sj + dj)).collect();
+    ring.sort_unstable_by(f64::total_cmp);
+    let (ring_min, ring_mid) = (ring.first().copied().unwrap_or(f64::NAN), ring.get(ring.len() / 2).copied().unwrap_or(f64::NAN));
     format!(
-        "{{\"table_depth_m\": {{{}}}, \"wettest_quarter\": {{\"rain_mm_a_day\": {wet_rain:.2}, \"table_depth_m\": {wet:.1}}}, \"driest_quarter\": {{\"rain_mm_a_day\": {dry_rain:.2}, \"table_depth_m\": {dry:.1}}}, \"tight_land\": {:.3}, \"springs\": {springs}, \"spring_streams\": {streams}, \"caves_flooded\": {{\"balls\": {:.3}, \"columns\": {:.3}}}, \"under_the_spawn_m\": {spawn:.1}}}",
+        "{{\"table_depth_m\": {{{}}}, \"wettest_quarter\": {{\"rain_mm_a_day\": {wet_rain:.2}, \"table_depth_m\": {wet:.1}}}, \"driest_quarter\": {{\"rain_mm_a_day\": {dry_rain:.2}, \"table_depth_m\": {dry:.1}}}, \"tight_land\": {:.3}, \"springs\": {springs}, \"spring_streams\": {streams}, \"caves_flooded\": {{\"balls\": {:.3}, \"columns\": {:.3}, \"cave_columns\": {cave_cols}, \"columns_cave_under_table\": {under_cols}}}, \"under_the_spawn_m\": {spawn:.1}, \"round_the_spawn_30m\": {{\"shallowest_m\": {ring_min:.1}, \"median_m\": {ring_mid:.1}, \"columns\": {}}}}}",
         provinces.join(", "),
         tight as f64 / land.max(1) as f64,
         flooded as f64 / b.caves.len().max(1) as f64,
         wet_cols as f64 / cave_cols.max(1) as f64,
+        ring.len(),
     )
 }
 

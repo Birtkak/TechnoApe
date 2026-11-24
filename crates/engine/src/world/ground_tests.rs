@@ -39,7 +39,7 @@ fn a_cave_under_the_table_is_flooded_to_it_and_one_over_it_is_dry() {
     for f in 0..6u8 {
         for (c, runs, zs, t) in columns(&w, f, 3) {
             let Some(t) = t else { continue };
-            if w.bodies[0].water_at(f, c.i(), c.j()).is_some() {
+            if w.bodies[0].open_water(f, c.i(), c.j()) {
                 continue;
             }
             // a closed cave alone in its column, open air between it and the ground
@@ -82,7 +82,7 @@ fn a_cave_full_under_the_table_presses_to_it() {
     let g = w.ground();
     let found = (0..6u8).flat_map(|f| columns(&w, f, 3).collect::<Vec<_>>()).find(|(c, runs, zs, t)| {
         let [(_, hi)] = runs[..] else { return false };
-        t.is_some_and(|t| (hi as f64) < t - 2.0) && hi < zs - 1 && w.bodies[0].water_at(c.face(), c.i(), c.j()).is_none()
+        t.is_some_and(|t| (hi as f64) < t - 2.0) && hi < zs - 1 && !w.bodies[0].open_water(c.face(), c.i(), c.j())
     });
     let (c, runs, _, t) = found.expect("a cave under the table");
     let (lo, hi) = runs[0];
