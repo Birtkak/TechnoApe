@@ -31,7 +31,7 @@ pub const GHOST_MAX: usize = engine::edit::MAX_CELLS as usize * 24;
 /// inventory screens' 54 cubes take some 11,000 more (ADR 0075).
 pub const RECTS_MAX: usize = 32768;
 
-/// The game's own font (data/font.txt): 8 x 8 cells from ' ' to '~', a byte a row from the top, the
+/// The game's own font (data/font.txt): 8 x 8 cells from ' ' to '~', then '°' (`DEGREE`), a byte a row from the top, the
 /// leftmost pixel the lowest bit. Errors name what is wrong with the file.
 pub fn font_cells(text: &str) -> Result<Vec<[u8; 8]>, String> {
     let mut drawn: FxMap<char, Vec<u8>> = FxMap::default();
@@ -51,6 +51,7 @@ pub fn font_cells(text: &str) -> Result<Vec<[u8; 8]>, String> {
         }
     }
     (' '..='~')
+        .chain(['°'])
         .map(|c| {
             let mut cell = [0u8; 8];
             let rows = match (drawn.get(&c), drawn.get(&c.to_ascii_uppercase())) {
@@ -71,7 +72,19 @@ pub fn font_cells(text: &str) -> Result<Vec<[u8; 8]>, String> {
         .collect()
 }
 
-/// The font for `overlay.wgsl`, as WGSL: two words a character from ' ' to '~'.
+/// The degree sign's glyph: the cell after '~' (`overlay.wgsl` reads glyphs 32 and up from FONT).
+pub const DEGREE: u32 = 127;
+
+/// The glyph `overlay.wgsl` draws for `ch`: its code from ' ' to '~', `DEGREE` for '°', else '?'.
+pub fn glyph(ch: char) -> u32 {
+    match ch {
+        ' '..='~' => ch as u32,
+        '°' => DEGREE,
+        _ => '?' as u32,
+    }
+}
+
+/// The font for `overlay.wgsl`, as WGSL: two words a character from ' ' to '~', then '°'.
 pub fn font_wgsl() -> String {
     let cells = font_cells(include_str!("../../../data/font.txt")).unwrap_or_else(|e| panic!("data/font.txt: {e}"));
     let words: Vec<String> = cells
@@ -184,7 +197,7 @@ impl Paint {
                 Some(Some(c)) => [c[0], c[1], c[2], colour[3]],
                 _ => colour,
             };
-            let g = if (' '..='~').contains(&ch) { ch as u32 } else { '?' as u32 };
+            let g = glyph(ch);
             if g == ' ' as u32 {
                 continue;
             }
@@ -1542,10 +1555,13 @@ mod tests {
     #[test]
     fn the_font_draws_every_printable_character() {
         let cells = font_cells(include_str!("../../../data/font.txt")).unwrap();
-        assert_eq!(cells.len(), 95);
+        assert_eq!(cells.len(), 96);
         let at = |c: char| cells[c as usize - 32];
         assert_eq!(at(' '), [0; 8]);
         assert!((b'!'..=b'~').all(|c| at(c as char) != [0; 8]), "a character with no pixels");
+        // the degree sign, after '~': a small ring at the top of its cell
+        assert_eq!((glyph('°'), cells[(glyph('°') - 32) as usize]), (DEGREE, [4, 10, 4, 0, 0, 0, 0, 0]));
+        assert_eq!(glyph('§'), '?' as u32);
         // the small letters are drawn: a low one on the baseline under two empty rows, a tall one from the
         // top, one with a tail down into the eighth row; none is its capital shrunk
         assert_eq!((at('a')[..2].to_vec(), at('a')[7]), (vec![0, 0], 0));
@@ -1605,7 +1621,7 @@ mod tests {
         let glyphs: Vec<u32> = p.out.iter().map(|r| r.glyph).collect();
         assert_eq!(glyphs, vec![72, 72, 105, 105, 63, 63, 33, 33], "shadow then face; the space is skipped, é is '?'");
         let f = font_wgsl();
-        assert_eq!(f.matches('u').count(), 2 * 95 + 1, "two words a character, and the u of u32");
+        assert_eq!(f.matches('u').count(), 2 * 96 + 1, "two words a character (ASCII and the degree sign), and the u of u32");
         let mut c = Paint::new(1920.0, 1080.0);
         chat(&mut c, &[(1.0, "hello"), (30.0, "old")], None, false, 0, &[], None);
         assert_eq!(c.out.iter().filter(|r| r.glyph >= 32).count(), 10, "the old line has faded");

@@ -21,6 +21,10 @@
 # ice is water's) under its freeze point, that block melts back over it, and it boils over its boiling point at the
 # place's pressure (the curve through its triple point and `boil` at one atmosphere); under the triple point's pressure
 # it has no liquid. Water at rest where it is liquid carries no temperature.
+# `surface` (C, in `heat`, optional): the temperature its open surface radiates at, where a crust cools over the
+# melt; what the felt temperature sees (`world::felt`), not the fluid's own heat. Lava: a lake's crust with hot cracks
+# radiates an effective surface of a few hundred C; a flux near 10 kW/m2, sigma 0.95 T^4, is about 375 C (thermal
+# radiometry of active lava lakes, e.g. Harris et al., "Thermal budgets of active lava lakes", Bull. Volcanol.).
 # Water: ice's conductivity at 0 C 2.22 W/(m K), molar mass 18.015 g/mol, triple point 611.657 Pa (CRC Handbook).
 
 [[fluid]]
@@ -39,7 +43,7 @@ viscosity = 64
 colour = [1.0, 0.32, 0.05]
 light = [2.2, 0.6, 0.08]
 freeze = { at = 1000.0, into = "basalt" }
-heat = { pour = 1150.0, capacity = 1200.0, latent = 400000.0, conduct = 1.5, emissivity = 0.95 }
+heat = { pour = 1150.0, capacity = 1200.0, latent = 400000.0, conduct = 1.5, emissivity = 0.95, surface = 375.0 }
 reacts = [{ with = "water", gives = ["basalt", "steam"], heat = 0.0 }]
 
 # light crude oil: floats on water (850 kg/m3), a few times its friction, dark; it neither freezes, boils nor burns yet

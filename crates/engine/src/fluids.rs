@@ -53,6 +53,10 @@ pub struct Heat {
     pub molar: f32,
     #[serde(default)]
     pub triple: f32,
+    /// The temperature its open surface radiates at, C (0: its own): a crust cooled over the melt (lava's), what the
+    /// felt temperature sees (`world::felt`); the fluid itself keeps its own heat.
+    #[serde(default)]
+    pub surface: f32,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -125,6 +129,9 @@ impl Fluids {
                 if r.freeze.as_ref().is_some_and(|f| h.pour <= f.at) {
                     return bad("heat: poured at or under its freeze point");
                 }
+                if h.surface != 0.0 && !(h.surface > -273.15 && h.surface <= h.pour) {
+                    return bad("heat: surface over its pour heat or under absolute zero");
+                }
             }
         }
         if f.fluid[0].viscosity != 1 {
@@ -179,6 +186,11 @@ mod tests {
         assert!(e.contains("'tar'") && e.contains("light"), "{e}");
         let e = Fluids::parse(&row("viscosity = 8\ndensity = 3.0")).unwrap_err();
         assert!(e.contains("density"), "a field twice is refused: {e}");
+        // a surface that radiates cooler than the melt is a crust; hotter than it is poured is refused
+        let heat = |surface: f32| row(&format!("viscosity = 8\nheat = {{ pour = 500.0, capacity = 1.0, latent = 1.0, conduct = 1.0, emissivity = 0.9, surface = {surface} }}"));
+        assert_eq!(Fluids::parse(&heat(300.0)).unwrap().rows[1].heat.as_ref().unwrap().surface, 300.0);
+        let e = Fluids::parse(&heat(600.0)).unwrap_err();
+        assert!(e.contains("'tar'") && e.contains("surface"), "{e}");
         let e = Fluids::parse(&format!("{}{}", &row("viscosity = 8")[ok.len()..], ok)).unwrap_err();
         assert!(e.contains("first fluid must be water"), "{e}");
     }

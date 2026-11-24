@@ -22,7 +22,13 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed (not the hotbar) up to
   10 km/s (ADR 0073); F3 the overlay of
-  numbers; F9 a bug report; F10 the playtest menu (an eclipse of the sun or of Luna, ADR 0036); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
+  numbers (its World group's `Felt` row: the felt temperature at the eye, the air's and the mean radiant temperature; Position's
+  `Looking at` the look-at panel's lines); the compass line ends with the felt temperature at the eye, `12.4 °C` (the
+  operative temperature of the air and the heat of lava in sight within 48 m, by 384 rays a few a frame, a set in about half a second;
+  a wall blocks it; in lava, the lava's), worked out four times a second; the look-at panel
+  under the compass names the block or the fluid (the sea's water, a river, lava, oil) the crosshair meets first, with its
+  temperature and, for a block, its hardness and tool, for a fluid its depth; a run's JSON carries `"felt"` and `"look"`, a
+  bot's `report` `"felt"`; F9 a bug report; F10 the playtest menu (an eclipse of the sun or of Luna, ADR 0036); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
   Accessibility), every key rebindable (Keys: grouped, searchable, a shared key red), kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom, `next`/`prev`/`go`/`nudge+` the menu by keys, `bind:KeyW`, `key+:KeyW`/`key-:KeyW` a real key through the bindings;

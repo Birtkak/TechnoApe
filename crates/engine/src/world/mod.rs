@@ -28,6 +28,8 @@ mod generate;
 pub use generate::*;
 mod volcano;
 pub use volcano::{Chamber, Crater, Stage};
+mod felt;
+pub use felt::{operative, ray_dir, Felt, Rays, FRAME_PROBES, RAYS, RAY_REACH};
 
 pub const BLOCK: f64 = 1.0;
 /// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it
