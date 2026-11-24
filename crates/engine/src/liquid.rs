@@ -11,6 +11,8 @@
 //! water costs nothing, and untouched sea is not stored at all: it is generated from the seed like terrain.
 use crate::world::FxMap;
 
+pub mod phases;
+
 /// Units of water in one full block.
 pub const U: i64 = 1 << 12;
 /// A gap open to the sky.
@@ -175,6 +177,20 @@ pub trait Ground {
     /// and in a place generation fills with a fluid other than water, the heat that keeps it so (a live volcano's).
     fn heat(&self, _c: Col, _z: f64) -> f32 {
         AMBIENT
+    }
+    /// The air at layer `z` of column `c`: its temperature, C, and its pressure, Pa (0: no air). What water's phases
+    /// go by (`phases`): the weather's, at ADR 0187's pace.
+    fn air(&self, _c: Col, _z: f64) -> (f64, f64) {
+        (AMBIENT as f64, phases::ATM)
+    }
+    /// How many times faster heat exchanged with the air and sky runs than the real rate (ADR 0187): the real year
+    /// over the game's.
+    fn pace(&self) -> f64 {
+        1.0
+    }
+    /// Whether cell `z` of column `c` holds water's solid (its row's `freeze` block, ice).
+    fn ice(&self, _c: Col, _z: i32) -> bool {
+        false
     }
 }
 
@@ -469,6 +485,13 @@ pub struct Liquids {
     pub waiting: Vec<(Col, i32, u8)>,
     /// Layers a gap may hold (`LAYERS`; a test sets fewer, `set_layers`; 0: `LAYERS`).
     most: u8,
+    /// Ice blocks whose heat is followed (`phases`; placed, frozen, or touched by an edit), by (column, layer): the units
+    /// of the block melted or sublimated so far, held in it until the whole block goes. shortcut: not saved (a reload
+    /// starts each block's melt again, its units kept; the server watches every ice edit again on load).
+    ice: FxMap<(Col, i32), f64>,
+    /// Ice blocks gone since the caller last took them, (column, layer, units): the cell is air again and `units` of
+    /// water are poured there (0: it sublimated, its units are in `vapour`).
+    pub thawed: Vec<(Col, i32, i64)>,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {
@@ -720,6 +743,7 @@ impl Liquids {
                         self.warm(g, p, k, w, t);
                         self.nodes[p as usize].water += w;
                         self.nodes[i as usize].water = 0;
+                        // (water's `frac` is progress, not matter, `phases`: the kept node's is enough)
                         if let Some(h) = self.heat.remove(&i) {
                             if let Some(e) = self.heat.get_mut(&p) {
                                 (e.frac, e.solid) = (e.frac + h.frac, e.solid + h.solid);
@@ -1171,24 +1195,33 @@ impl Liquids {
         let &a = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer)?;
         self.gap(c, self.nodes[a as usize].floor).iter().find_map(|i| self.heat.get(i)).map(|h| h.t)
     }
-    /// Every heat held, as (column, the node's floor, heat), sorted: for saves.
+    /// Every heat held, as (column, the node's floor, heat), sorted by those and its fluid: for saves.
     pub fn heats(&self) -> Vec<(Col, i32, Therm)> {
-        let mut v: Vec<(Col, i32, Therm)> = self.heat.iter().map(|(&a, &h)| (self.nodes[a as usize].col, self.nodes[a as usize].floor, h)).collect();
-        v.sort_unstable_by_key(|x| (x.0, x.1));
+        self.held_heats().into_iter().map(|(c, f, _, h)| (c, f, h)).collect()
+    }
+    /// The fluid of each of `heats`, in its order (a save's: layers of one gap share a floor).
+    pub fn heat_kinds(&self) -> Vec<u8> {
+        self.held_heats().into_iter().map(|x| x.2).collect()
+    }
+    fn held_heats(&self) -> Vec<(Col, i32, u8, Therm)> {
+        let mut v: Vec<(Col, i32, u8, Therm)> = self.heat.iter().map(|(&a, &h)| (self.nodes[a as usize].col, self.nodes[a as usize].floor, self.nodes[a as usize].kind, h)).collect();
+        v.sort_unstable_by_key(|x| (x.0, x.1, x.2));
         v
     }
-    /// A save's heats back on the nodes `restore` built: each on its column's node of that floor, else on the
-    /// column's first node of a fluid with heat that has none yet (the ground under it changed since), else
-    /// dropped. Then every stored node of such a fluid still without one, outside generation's own (which rests at
+    /// A save's heats back on the nodes `restore` built: each on its column's node of its fluid (`kinds`, by `heats`'
+    /// order; a save from before them names none: a fluid other than water) and that floor, else on the column's first
+    /// node of that fluid that has none yet (the ground under it changed since), else dropped. Then every stored node of such a fluid still without one, outside generation's own (which rests at
     /// its place's heat), is given its row's pour heat: a save from before heat, or one whose heat was dropped,
     /// must not leave lava liquid for ever.
-    pub fn restore_heat(&mut self, g: &impl Ground, heats: &[(Col, i32, Therm)]) {
+    pub fn restore_heat(&mut self, g: &impl Ground, heats: &[(Col, i32, Therm)], kinds: &[u8]) {
         let rows = crate::fluids::FLUIDS.now();
         let hot = |n: &Node| n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some();
-        for &(c, floor, h) in heats {
+        for (k, &(c, floor, h)) in heats.iter().enumerate() {
+            let kind = kinds.get(k).copied();
+            let held = |n: &Node| n.water > 0 && rows.get(n.kind).heat.is_some() && kind.map_or(n.kind != crate::fluids::WATER, |k| n.kind == k);
             let Some(ids) = self.cols.get(&c) else { continue };
-            let own = ids.iter().copied().find(|&i| hot(&self.nodes[i as usize]) && self.nodes[i as usize].floor == floor && !self.heat.contains_key(&i));
-            if let Some(a) = own.or_else(|| ids.iter().copied().find(|&i| hot(&self.nodes[i as usize]) && !self.heat.contains_key(&i))) {
+            let own = ids.iter().copied().find(|&i| held(&self.nodes[i as usize]) && self.nodes[i as usize].floor == floor && !self.heat.contains_key(&i));
+            if let Some(a) = own.or_else(|| ids.iter().copied().find(|&i| held(&self.nodes[i as usize]) && !self.heat.contains_key(&i))) {
                 self.heat.insert(a, h);
             }
         }
@@ -1213,13 +1246,14 @@ impl Liquids {
     /// The heats of column c's nodes, by fluid, before its nodes are built again (`give_heat`): a node with none
     /// carries its rest's, which is its old place's.
     fn take_heat(&self, g: &impl Ground, ids: &[u32]) -> Vec<(u8, i64, Therm)> {
-        if !self.other {
+        if !self.other && self.heat.is_empty() {
             return Vec::new();
         }
         let rows = crate::fluids::FLUIDS.now();
+        // (water carries one only while it is held off its rest, `phases`)
         ids.iter()
             .map(|&a| (a, &self.nodes[a as usize]))
-            .filter(|(_, n)| n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some())
+            .filter(|&(a, n)| n.water > 0 && (n.kind != crate::fluids::WATER || self.heat.contains_key(&a)) && rows.get(n.kind).heat.is_some())
             .map(|(a, n)| (n.kind, n.water, self.heat.get(&a).copied().unwrap_or(Therm { t: self.rest_of(g, a), age: 0.0, frac: 0.0, solid: 0 })))
             .collect()
     }
@@ -1309,14 +1343,28 @@ impl Liquids {
     pub fn cool(&mut self, g: &impl Ground, dt: f64) -> Vec<(Col, i32, u8)> {
         let mut out = std::mem::take(&mut self.waiting);
         out.extend(self.react(g));
+        let rows = crate::fluids::FLUIDS.now();
+        // water's phases (liquids.md step 5): stored water off its rest is given a heat, ice blocks followed melt
+        let ph = phases::Phases::of(rows.get(crate::fluids::WATER));
+        if let Some(ph) = &ph {
+            self.wake_water(g, ph);
+            self.thaw(g, dt, ph);
+        }
         if self.heat.is_empty() {
             return out;
         }
-        let rows = crate::fluids::FLUIDS.now();
         let mut ids: Vec<u32> = self.heat.keys().copied().collect();
         ids.sort_unstable();
         for a in ids {
             let n = &self.nodes[a as usize];
+            if let (Some(ph), true) = (&ph, n.kind == crate::fluids::WATER && n.water > 0) {
+                let h = self.heat[&a];
+                match self.water_heat(g, a, h, dt, ph, &mut out) {
+                    Some(h) => self.heat.insert(a, h),
+                    None => self.heat.remove(&a),
+                };
+                continue;
+            }
             let row = rows.get(n.kind);
             let Some(hr) = row.heat.as_ref().filter(|_| n.water > 0 && n.kind != crate::fluids::WATER) else {
                 self.heat.remove(&a);
@@ -1358,7 +1406,8 @@ impl Liquids {
                     self.restack(col);
                 }
             }
-            if h.solid >= U && row.freeze.is_some() {
+            // every whole block a step (a coarse step freezes more than one)
+            while h.solid >= U && row.freeze.is_some() {
                 out.push((col, floor, kind));
                 h.solid -= U;
             }
@@ -2278,7 +2327,7 @@ impl Liquids {
             let (lo, hi) = g.generated(c);
             let want = if lo < hi && n.floor as i64 * U == lo { hi - lo } else { 0 };
             // (a column generation fills with another fluid is never given back: it would come back full)
-            if n.ceil != OPEN || n.kind != crate::fluids::WATER || (n.water - want).abs() >= DEAD || (want == 0 && lo < hi) || g.gaps(c) != [(n.floor, OPEN)] || !g.generated_other(c).is_empty() {
+            if n.ceil != OPEN || n.kind != crate::fluids::WATER || self.heat.contains_key(&a) || (n.water - want).abs() >= DEAD || (want == 0 && lo < hi) || g.gaps(c) != [(n.floor, OPEN)] || !g.generated_other(c).is_empty() {
                 continue;
             }
             let w = n.water;
@@ -2362,11 +2411,16 @@ pub mod test_ground {
         pub g: f64,
         /// `Ground::heat`, everywhere, C.
         pub heat: f32,
+        /// `Ground::air` (C, Pa) and `Ground::pace`, everywhere.
+        pub air: (f64, f64),
+        pub pace: f64,
+        /// The cells holding ice (`Ground::ice`), solid too.
+        pub ice: Vec<(i32, i32, i32)>,
     }
 
     impl Box3 {
         pub fn new(nx: i32, ny: i32, nz: i32) -> Box3 {
-            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G, heat: AMBIENT }
+            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G, heat: AMBIENT, air: (AMBIENT as f64, phases::ATM), pace: 1.0, ice: Vec::new() }
         }
         /// Generation fills every column to `level` units over the terrain as it is now.
         pub fn with_sea(&mut self, level: i64) {
@@ -2397,6 +2451,15 @@ pub mod test_ground {
         }
         fn heat(&self, _c: Col, _z: f64) -> f32 {
             self.heat
+        }
+        fn air(&self, _c: Col, _z: f64) -> (f64, f64) {
+            self.air
+        }
+        fn pace(&self) -> f64 {
+            self.pace
+        }
+        fn ice(&self, c: Col, z: i32) -> bool {
+            self.ice.contains(&(c.i(), c.j(), z))
         }
         fn gaps(&self, c: Col) -> Vec<(i32, i32)> {
             let (x, y) = (c.i(), c.j());

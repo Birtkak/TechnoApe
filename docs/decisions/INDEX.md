@@ -203,3 +203,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0192 | Volcanoes on Terra's arcs: cone, conduit, chamber, a lake of generated lava (generation 10) | [bake-and-landforms.md](bake-and-landforms.md) - Volcanoes on Terra's arcs | in force |
 | 0193 | Lava lights, carries a body by its density, and freezes to basalt at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Lava lights, carries a body, and freezes to basalt | in force |
 | 0194 | Fluids lie in layers by density (oil on water); lava and water react to basalt and steam | [sky-weather-and-water.md](sky-weather-and-water.md) - Fluids lie in layers by density; lava and water react | in force |
+| 0195 | Stored water freezes to ice from the top, ice melts back to its water, water boils by local pressure; the sea stays the formula's | [sky-weather-and-water.md](sky-weather-and-water.md) - Water freezes, melts and boils: one ledger over three phases | in force |

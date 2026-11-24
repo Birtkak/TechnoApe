@@ -15,8 +15,13 @@
 # takes, conduct = W/(m K), emissivity = 0..1 of its open surface }. A fluid with one carries a temperature where it
 # is stored off its rest, loses heat to the air and rock round it at real rates and turns into its `freeze` block
 # below that point (`liquid::Liquids::cool`). `density` and `viscosity` also carry a body in it (`phys::step`).
-# `vaporise` (J/kg, in `heat`, optional): the latent heat of its boil, what a reaction boiling it off takes. Water's
-# heat is read only by reactions so far (`liquid::Liquids::react`): it carries no temperature until liquids.md step 5.
+# `vaporise` (J/kg, in `heat`, optional): the latent heat of its boil, what a reaction boiling it off takes.
+# `solid_conduct` (W/(m K)), `molar` (kg/mol) and `triple` (Pa), optional: a substance with all three (water) changes
+# phase by the heat at its place (`liquid::phases`, liquids.md step 5): it freezes into its `freeze` block (the solid:
+# ice is water's) under its freeze point, that block melts back over it, and it boils over its boiling point at the
+# place's pressure (the curve through its triple point and `boil` at one atmosphere); under the triple point's pressure
+# it has no liquid. Water at rest where it is liquid carries no temperature.
+# Water: ice's conductivity at 0 C 2.22 W/(m K), molar mass 18.015 g/mol, triple point 611.657 Pa (CRC Handbook).
 
 [[fluid]]
 name = "water"
@@ -25,7 +30,7 @@ viscosity = 1
 colour = [0.12, 0.32, 0.45]
 freeze = { at = 0.0, into = "ice" }
 boil = { at = 100.0, into = "steam" }
-heat = { pour = 15.0, capacity = 4186.0, latent = 334000.0, conduct = 0.6, emissivity = 0.96, vaporise = 2257000.0 }
+heat = { pour = 15.0, capacity = 4186.0, latent = 334000.0, conduct = 0.6, emissivity = 0.96, vaporise = 2257000.0, solid_conduct = 2.22, molar = 0.018015, triple = 611.657 }
 
 [[fluid]]
 name = "lava"

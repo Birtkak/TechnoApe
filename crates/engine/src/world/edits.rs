@@ -153,10 +153,19 @@ impl World {
     /// through becomes its fluid's `freeze` block and its column finds its gaps again (a second one for a cell lies on
     /// the first), unless the cell is taken (a block there, or `busy`: a player in it), when the block waits, booked
     /// frozen, and tries again the next time. Returned as (cell, what was there, the block) for the edits.
+    /// Water's phases go by the air (`liquid::phases`): the baked climate with the season and the hour; the server's
+    /// live air through `cool_fluids_in`. An ice block that melted through is air again with its water poured there.
     pub fn cool_fluids(&mut self, dt: f64, busy: impl Fn(Block) -> bool) -> Vec<(Block, u16, u16)> {
+        self.cool_fluids_in(dt, busy, None)
+    }
+    /// `cool_fluids` with the air's temperature at a place (column, layer) given by `temp` (the live air grid's).
+    /// None from `temp`: the baked climate's there.
+    pub fn cool_fluids_in(&mut self, dt: f64, busy: impl Fn(Block) -> bool, temp: Option<&dyn Fn(Col, f64) -> Option<f64>>) -> Vec<(Block, u16, u16)> {
         let cells = {
             let World { bodies, edits, water, sky, time, .. } = self;
-            water.cool(&Solid::at(bodies, edits, sky, *time), dt)
+            let mut g = Solid::at(bodies, edits, sky, *time);
+            g.air = Some(Air { sky, t: *time, temp });
+            water.cool(&g, dt)
         };
         let rows = crate::fluids::FLUIDS.now();
         let mut out = Vec::new();
@@ -174,9 +183,48 @@ impl World {
             }
             self.set_block(b, m);
             self.regap(b);
+            if kind == crate::fluids::WATER {
+                self.water.watch_ice(c, b.pos.z);
+            }
             out.push((b, was, m));
         }
+        // ice melted through: its cell is air and its units water poured there (none where it sublimated)
+        for (c, z, units) in std::mem::take(&mut self.water.thawed) {
+            let b = Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) };
+            let was = self.block(b);
+            self.set_block(b, AIR);
+            self.regap(b);
+            let poured = units == 0 || {
+                let World { bodies, edits, water, sky, time, .. } = self;
+                water.pour(&Solid::at(bodies, edits, sky, *time), c, z, units)
+            };
+            if !poured {
+                // its water has no place (the gap at its most layers): it stays ice and tries again the next second
+                self.water.refreeze(c, z, units);
+                self.set_block(b, was);
+                self.regap(b);
+                continue;
+            }
+            out.push((b, was, AIR));
+        }
         out
+    }
+    /// Ice blocks at cell b and the six beside it are followed from now on (`Liquids::watch_ice`): an edit there
+    /// (placed, or a neighbour dug or set) exposes them to the air.
+    pub fn watch_ice_near(&mut self, b: Block) {
+        let Some(f) = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).freeze.as_ref() else { return };
+        let ice = BLOCKS.id(&f.into);
+        for d in [IVec3::ZERO, IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
+            let n = b.pos + d;
+            // (a neighbour over a face's edge is not followed: shortcut, until an ice block on a seam is seen keep)
+            if n.x < 0 || n.y < 0 || n.x >= self.bodies[b.body as usize].n || n.y >= self.bodies[b.body as usize].n || n.z < 0 {
+                continue;
+            }
+            let c = Block { pos: n, ..b };
+            if self.block(c) == ice {
+                self.water.watch_ice(World::col(c), n.z);
+            }
+        }
     }
     /// The cells where a reaction boiled fluid off since the last call (`Liquids::react`): the steam's places.
     pub fn take_boils(&mut self) -> Vec<(Block, u8)> {

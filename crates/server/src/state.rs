@@ -133,12 +133,16 @@ impl Server {
                 s.falls.poke(over);
             }
         }
+        // every ice block an edit set or laid open is followed again (water's phases; their melt so far is not saved)
+        for (b, _) in &save.edits {
+            s.world.watch_ice_near(*b);
+        }
         // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
         // step's tide, and the next step retides exactly when the running world's did (ADR 0067)
         s.world.time = save.tick.saturating_sub(1) as f64 / TICK_HZ;
         let World { bodies, edits, water, sky, time, .. } = &mut s.world;
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
-        water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0);
+        water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0, &save.kinds);
         water.froze = save.heat.1.iter().copied().collect();
         (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
@@ -238,6 +242,7 @@ impl Server {
             gen: self.world.bodies[0].gen,
             heat: (self.world.water.heats(), self.world.water.froze.iter().map(|(&k, &u)| (k, u)).collect()),
             booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.waiting.clone()),
+            kinds: self.world.water.heat_kinds(),
         }
     }
 
@@ -296,8 +301,11 @@ impl Server {
     /// changes. Zero when no unit appeared or vanished.
     pub fn water_ledger(&self) -> i64 {
         let held: i64 = self.clients.iter().map(|c| c.water as i64).chain(self.absent.values().map(|p| p.water as i64)).sum();
-        // (water a reaction boiled off is steam, still counted: liquids.md step 4)
-        self.world.water.counted() + self.world.water.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0) + held - (self.made - self.removed)
+        // (water a reaction or its heat boiled off is steam, water frozen is ice, both still counted: liquids.md
+        // steps 4 and 5)
+        let w = &self.world.water;
+        let (steam, ice) = (w.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0), w.froze.get(&engine::fluids::WATER).copied().unwrap_or(0));
+        w.counted() + steam + ice + held - (self.made - self.removed)
     }
 
     /// Conservation of ore (ADR 0063): the bodies whose ledger differs from a recount from the edits, as

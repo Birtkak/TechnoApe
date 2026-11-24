@@ -229,6 +229,92 @@ server ledger for creative's other fluids.
 Replaces: 0186's "a node holds one kind", its wall and its refused pour, and "where an edit joins two gaps of
 different fluids, the denser keeps the gap".
 
+### Water freezes, melts and boils: one ledger over three phases [0195, 2026-11-24]
+- **Context:** `liquids.md` step 5, ADR 0183 (matter changes phase), 0187 (two paces), 0193 (lava's sparse heat, its
+  `froze` and `waiting`), 0194 (`react`, `vapour`); the rule and numbers of the spike `prototypes/water-phases`.
+- **The rule** (`liquid::phases`, the spike's enthalpy method): stored water where its rest is liquid carries nothing.
+  Once a second (`cool`) every stored water node alone in its gap is looked at; one open to the air (or under ice)
+  where the air is under 0 C or under the triple point's pressure, or one on rock over its boiling point, is given
+  lava's `Therm`. It is forgotten again when it holds no ice of its own, the air is over 0 C, the rock under its boiling
+  point, or when nothing reaches it any more (a block other than ice set over it, another fluid laid on it). Heat flows
+  a second (W/m^2, a column 1 m^2): to the air over an open surface, h (T - T_air); up through the ice over it,
+  (0 - T_air) / (d / k_ice + 1 / h) (Stefan's law with the air's resistance, the ice holding no heat; a lid gives the
+  water no heat back); from hot rock under it, through half its depth and the rock's cooling since it came (lava's).
+  Past 0 C the loss is freezing progress (`Therm::frac`) while the water stays liquid and counted; once a whole U has
+  frozen, its U units leave the node, are booked to `froze`, and the block of its row's `freeze` block, `ice`, is set
+  through the edits as basalt is, in the node's top cell, so a pond grows ice from the top down; a step that freezes
+  more sets every whole block, downward from there. A taken cell (a player) gets none: the block waits, booked, as
+  0193's, and the freeze holds at that block until it is set. Gaining heat it melts its own progress first, then warms,
+  never past the air's or the rock's heat, and boils whole units to `vapour` only where hot rock drives it over its
+  boiling point (`frac` under 0 is the next unit's boil paid for), with an `Event::Boil`; what a melt has over is
+  dropped. Under the triple point's pressure it has no liquid: (c dT + L_f) / (L_v + L_f) of it boils at once, every
+  whole block of the rest freezes and what is short of a block boils too.
+- **Stored sea is left to the formula in this step** (the review, 2026-11-24): a stored water node in a column of
+  generated sea takes no part in freezing (no heat from cold air, no ice set); the sea's ice stays the bake's until
+  the roadmap's "ice by physics" step gives the sheet a rule that returns to generation. Hot rock under it still
+  boils it.
+- **Ice blocks** (`Liquids::ice`, `thaw`): one placed, one the water froze, and one an edit was set beside (the bake's
+  too) are followed. Each open face takes h (T_air - 0) from the air, a hot fluid beside it (lava) gives it through half
+  a block of itself; the melt is held in the block, its area shrinking as a cube's (the spike's), until all of it went:
+  the block is then air and its U units of water are poured there. Under the triple point it sublimates, its surface
+  where the heat it takes pays the vapour leaving (Hertz-Knudsen in no air), its units to `vapour`, no water made.
+- **Numbers** (water's row, `data/fluids.toml`, the solid named by `freeze.into`): L_f 334 kJ/kg, c 4186 J/(kg K),
+  L_v 2.257 MJ/kg (the energy), conduct 0.6, ice's 2.22 W/(m K), molar mass 18.015 g/mol, triple point 611.657 Pa (CRC
+  Handbook); the vapour curves through the triple point and 100 C at one atmosphere (the spike's fitted slope, within
+  4 % of the real curve). h = 10 W/(m^2 K) free convection + 4 e sigma T^3 (about 5). Pressure: one atmosphere at the
+  sea and the isothermal scale height R T / (M g) of Earth's air; a body without air 0 Pa. F = 8 / (1 / k_ice + 1 / h)
+  = 15.4 W/m^2, derived from the bake's `t_sea_ice` (-8 C) so that its one-block sheet is the rest there (the real
+  ocean gives 2 to 10; summer melt, which a year's mean cannot see, does the rest). **The pace** (ADR 0187): the real
+  year (365.25 days) over the sky's (`Sky::year`; 52.5 for 334 days of 1800 s) on every flow with the air and sky and on
+  F; rock and lava at real rates, and a pot a source heats loses to the air at the real rate. The heat step is the
+  world clock's: under `/timewarp n` it runs n seconds a second.
+- **The air:** the server's live air grid's temperature on the planet (`Weather::here`), else the baked climate with
+  the season and the hour (`sky::temperature`), elsewhere the rock's (`Body::heat`).
+- **One ledger:** `froze[water]` is units turned to ice blocks less those melted back, so the water ledger (server
+  `water_ledger`) is `counted + vapour + froze + buckets - creative`: a change of phase never moves it. A block of ice
+  dug or placed is not water until it melts (it then books -U from `froze`, the bake's too). Melted ice whose water
+  has no place (its gap at its most layers) stays ice, booked, and tries again the next second.
+- **Measured** (tests in `liquid/phase_tests.rs`, `world/volcano.rs`): a 1 m3 block in +10 C still air, 5 faces, melts
+  to exactly 4096 units in 24,540 s (the cube's law by hand, 3 rho L / (5 h dT) over the pace: 25,549 s, 14 game
+  days); a pond 4 1/3 blocks deep under -10 C air grows its first block in 188,820 s and its second in 664,320 s
+  (Stefan by hand 188,865 and 664,352), liquid under it; 1/8 block on 1000 C rock boils dry in 1.2e5 s at one
+  atmosphere, never over 100.000 C, every unit in `vapour`; at 700 Pa it boils at 1.946 C; 100.00 C at 101,325 Pa,
+  93.74 at 79,859 Pa (a 1 km peak at 19.62 m/s^2), -0.08 at 608 Pa (no liquid), -273.15 in no air; an ice block in no
+  air sublimates in 6.0e4 s with no water made; 3 U in no air are 2 blocks of ice and 1 U of vapour in one step; a
+  puddle of 2000 units at -30 C stays water; a block and a half ends as one block over half a block of water; a
+  stored patch of polar sea under -20 C a game week takes no heat; a puddle half frozen melts at a 10,000 s step and
+  boils nothing; water under an ice lid at -3 C a game year stays under 4 C; freezing waits while a player is in the
+  cell, one block booked at most.
+- **The bake's sheet against the formula** (not rebaked; stored sea does not freeze in this step, so it does not show):
+  the rest sheet is k_ice ((0 - T) / F - 1 / h). It is one block (the bake's) only where the year's mean is -8 to
+  -14.9 C. Colder, it is thicker (2.2 m at -16.6 C, 4.2 at -30); between -1.1 and -8 C the formula wants a sheet
+  thinner than a block where the bake shows open sea. The first version let stored sea freeze by this rule and it
+  crept outward over the cold sea, a column a game year (the review). The fix is the bake's sheet from the formula,
+  its thickness by the year's mean at the cell (a bake format change), with "ice by physics".
+- **Not built, and why:** evaporation from open water into dry air: at 20 C and half humidity it is about 6 mm a real
+  day, 31 cm a game day at the pace, and with no rain on stored water and no vapour in the cell yet every stored pond
+  would dry in days; it waits for the air grid's vapour and rain (step 6), and so does the sublimation of pond ice
+  (the spike: a fifth faster freezing). Fires and furnaces as heat sources (their heat lives in the server's furnaces,
+  not the ground); lava beside an ice block and hot rock are.
+- **Save and wire:** water's heats ride 0193's heat tail, `froze` its tail, and a third tail names each heat's fluid
+  (layers of one gap share a floor; a save without it restores its heats onto fluids other than water, as before); an
+  ice block's melt so far is not saved (a reload starts it again, its units kept; every ice edit and its neighbours
+  are followed again on load). No version moves; a world where water neither froze nor boiled writes the very bytes
+  it did, and its water steps to the bit as before (a hashed trace). Clients see the ice through the edits.
+- **Shortcuts named in the code:** a block of ice is U units (real ice 1.09 blocks); less than a block of water never
+  freezes (until partial layers, ADR 0189), and in no air what is short of a block boils at once; stored sea does not
+  freeze (until ice by physics); water under a cave's roof or under another layer takes no part; the water under ice
+  is one temperature; no heat between columns or layers; water's heat is not mixed as it flows; water beside an ice
+  block gives it no heat; ice under freezing air keeps; Earth's air on every body; every stored water node is looked at
+  a second (cost not measured, a feature round).
+- **Limits** (the review, not fixed in this step): ice as an item is outside the water ledger: a frozen block dug and
+  its item lost, or ice baked or given that melts, moves `froze` with no freeze to match; the ledger counts changes of
+  phase, not the ice that exists. `exp`, `ln`, `cbrt` and `powf` in `pressure`, `p_sat`, `boils_at` and `thaw` are
+  bit-stable on one binary, so a recording made on the Linux server and replayed on Windows may part where water
+  changes phase.
+- **Not chosen:** an ice layer in the node (a wire and save change for a thickness the block grid shows anyway); a
+  temperature on every stored column (the spike: 30 times the time, 14 the memory, every save larger).
+
 ## The sea and the ledger
 
 - **The sea** is generated from the seed: every column whose ground is under the sea level holds water up to it.

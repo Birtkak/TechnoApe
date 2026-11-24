@@ -73,6 +73,11 @@ pub struct Save {
     /// second tail after the heat's, written (with the heat's, empty or not, before it) only when there is any.
     #[serde(skip)]
     pub booked: Booked,
+    /// The fluid of each of the heat's heats, in its order (water's phases: layers of one gap share a floor): a third
+    /// tail, written (with both before it) only when there is any; a save without it restores its heats onto fluids
+    /// other than water, as it was written.
+    #[serde(skip)]
+    pub kinds: Vec<u8>,
 }
 
 /// `Liquids::heats` (each node's column, floor and heat) and `Liquids::froze`.
@@ -84,7 +89,7 @@ impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new() }
     }
 }
 
@@ -345,12 +350,16 @@ impl Save21 {
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
-        let booked = self.booked != Booked::default();
+        let kinds = !self.kinds.is_empty();
+        let booked = self.booked != Booked::default() || kinds;
         if self.heat != Heat::default() || booked {
             b.extend(postcard::to_allocvec(&self.heat).expect("heat serialises"));
         }
         if booked {
             b.extend(postcard::to_allocvec(&self.booked).expect("the booked serialise"));
+        }
+        if kinds {
+            b.extend(postcard::to_allocvec(&self.kinds).expect("the kinds serialise"));
         }
         b
     }
@@ -366,8 +375,16 @@ impl Save {
                         Ok((h, more)) => {
                             s.heat = h;
                             if !more.is_empty() {
-                                match postcard::from_bytes(more) {
-                                    Ok(k) => s.booked = k,
+                                match postcard::take_from_bytes(more) {
+                                    Ok((k, last)) => {
+                                        s.booked = k;
+                                        if !last.is_empty() {
+                                            match postcard::from_bytes(last) {
+                                                Ok(k) => s.kinds = k,
+                                                Err(e) => eprintln!("the save's heats' fluids ({} bytes) unread, loaded without them: {e}", last.len()),
+                                            }
+                                        }
+                                    }
                                     Err(e) => eprintln!("the save's boiled and pushed-out fluid ({} bytes) unread, loaded without it: {e}", more.len()),
                                 }
                             }
