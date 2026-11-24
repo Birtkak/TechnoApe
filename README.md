@@ -21,6 +21,8 @@ Recorded from the game itself, as it runs today.
 | **The aurora**, drawn from the planet's magnetic field | **Luna:** craters and maria, turning through her phases |
 | ![Mars turning](docs/media/mars.gif) | ![Jupiter turning](docs/media/jupiter.gif) |
 | **Mars:** rust highlands, canyons and ice caps | **Jupiter**, the banded giant the moons circle |
+| ![A volcano erupting at night](docs/media/volcano.gif) | ![A lava lake's cracked crust](docs/media/lava.gif) |
+| **An eruption** at night: the crater's lake, and lava running down the cone | **A lava lake:** a dark crust broken by glowing cracks |
 
 ## Status
 
