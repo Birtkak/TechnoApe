@@ -1051,7 +1051,7 @@ mod tests {
         let h = w.bodies[0].height(DVec3::Y);
         let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
         let mut out = Vec::new();
-        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place granite {} {} {} {}; say /give hand_axe 1; hold 0; wait 0.5; prospect {d}; strike {d}; wait 1.1; prospect {d}; slots", at.face, at.pos.x, at.pos.y, at.pos.z);
+        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place granite {} {} {} {}; say /give hand_axe 1; hold 0; wait 0.5; prospect {d}; strike {d}; wait 1.1; prospect {d}; wait 0.5; slots", at.face, at.pos.x, at.pos.y, at.pos.z);
         bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
         let heard: Vec<&String> = out.iter().filter(|l| l.contains("\"prospect\"")).collect();
         assert_eq!(heard.len(), 2, "{out:?}");
