@@ -123,8 +123,8 @@ fn globe_lift(v: vec3f) -> f32 {
 // One pixel of the globe, a small copy of the body (draft "The map zooms out to the system"): every px x px block
 // follows the ray under its middle (the game's pixel look) into the ground, which stands out by the body's relief
 // (so mountains show at the limb), lit by the sun where it really is with a floor so the night still reads, a rim
-// of sky on a body with air, the unseen bare, a line every 30 degrees. globe.rs `View::pick` and `State::lift`
-// find the same places on the CPU.
+// of sky on a body with air, the unseen bare, a line every 30 degrees. globe.rs `State::pick` (the same march)
+// and `State::lift` find the same places on the CPU.
 fn globe_px(frag: vec2f) -> vec4f {
     let scale = f32(g.opt.z) / gf(23u);
     let c = vec2f(gf(0u), gf(1u)) * scale;
@@ -147,8 +147,10 @@ fn globe_px(frag: vec2f) -> vec4f {
     var above = t0;
     var below = t0;
     var hit = false;
-    for (var i = 0; i <= 40; i++) {
-        let t = t0 + (t1 - t0) * f32(i) / 40.0;
+    // two steps a texel of the picture, so a one-texel ridge at the limb is never stepped over (globe.rs `march_steps`)
+    let steps = i32(clamp(ceil((t0 - t1) * f32(globe[25u]) / 3.14159265), 8.0, 192.0));
+    for (var i = 0; i <= steps; i++) {
+        let t = t0 + (t1 - t0) * f32(i) / f32(steps);
         let x = e * p.x + n * p.y + d * t;
         if (length(x) <= globe_lift(normalize(x))) {
             below = t;

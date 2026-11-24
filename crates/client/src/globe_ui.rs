@@ -21,8 +21,8 @@ const GLOBE_PX: f64 = 24.0;
 const MARKS_PX: f64 = 40.0;
 /// Columns worked out again a frame after edits (`globe::State::refresh`).
 const TOPS_A_FRAME: usize = 64;
-/// Points an orbit is drawn through.
-const ORBIT_POINTS: usize = 256;
+/// The most edited columns drawn a frame (`globe::State::visible`): the UI's rectangles are `hud::RECTS_MAX`.
+const EDITS_MAX: usize = 8000;
 /// The sun's colour on the map.
 const SUN: [f32; 3] = [1.0, 0.86, 0.45];
 
@@ -53,6 +53,15 @@ impl App {
                 }
             }
         }
+        // a body loaded on approach that is not in yet: its map alone, on the worker, once it is looked at
+        let b = self.globe.body;
+        if self.menu == Some(Menu::Globe) && !self.globe.asked.get(b).is_none_or(|a| *a) {
+            if let Some(l) = self.world.lazy.get(b).and_then(Option::as_ref).filter(|l| !l.loaded) {
+                let body = &self.world.bodies[b];
+                let (row, seed, n, hash) = (engine::bodies::of(body.gen)[b].clone(), l.seed, body.n, l.hash);
+                self.globe.ask_with(b, move || row.bake.as_ref()?.for_hash(seed, n, hash));
+            }
+        }
         self.globe.refresh(&self.world, TOPS_A_FRAME);
         let (lw, lh) = self.ui_size();
         let w = &self.world;
@@ -65,10 +74,6 @@ impl App {
             return;
         }
         let g = &mut self.globe;
-        // the orbits once a map's opening, when the system first shows (the circles stay; their parents move)
-        if globe::system(g.zoom) && g.orbits.is_empty() {
-            g.orbits = (0..w.bodies.len()).map(|i| globe::orbit(w, i, ORBIT_POINTS)).collect();
-        }
         (g.view.cx, g.view.cy, g.view.r) = (lw as f64 * 0.5, lh as f64 * 0.5, globe::fit(lh as f64) * g.zoom);
         let b = g.body;
         if let Some(slot) = g.slots.get(b).copied().flatten() {
@@ -108,8 +113,7 @@ impl App {
             "map" if self.menu == Some(Menu::Globe) => self.set_menu(None),
             "map" if self.menu.is_none() && !self.texting() => {
                 let on = self.world.frame_at(self.me.pos);
-                self.globe_focus(if on < self.world.bodies.len() { on } else { 0 });
-                self.globe.orbits.clear();
+                self.globe_focus(if on < self.world.bodies.len() { on } else { 0 }, true);
                 self.set_menu(Some(Menu::Globe));
             }
             _ if self.menu != Some(Menu::Globe) => {}
@@ -119,7 +123,7 @@ impl App {
             a if a.starts_with("globe:focus:") => {
                 let name = &a["globe:focus:".len()..];
                 match self.world.bodies.iter().position(|b| b.name.eq_ignore_ascii_case(name)) {
-                    Some(k) => self.globe_focus(k),
+                    Some(k) => self.globe_focus(k, false),
                     None => self.note(format!("no body '{name}' on the map")),
                 }
             }
@@ -128,11 +132,15 @@ impl App {
         }
     }
 
-    /// Body k's globe, whole (zoom 1), turned to where the player is when they are on it, else to its meridian.
-    fn globe_focus(&mut self, k: usize) {
+    /// Body k's globe, whole (zoom 1); a body newly focused (or `fresh`, as the map opens) turned to where the player
+    /// is when they are on it, else to its meridian, the focused one left as it was turned.
+    fn globe_focus(&mut self, k: usize, fresh: bool) {
         let w = &self.world;
-        let (lat, lon) = if w.frame_at(self.me.pos) == k { nav::geo(self.me.pos - w.bodies[k].centre, self.globe.zeros[k]) } else { (0.0, 0.0) };
-        (self.globe.body, self.globe.zoom, self.globe.view.lat, self.globe.view.lon) = (k, 1.0, lat.clamp(-89.0, 89.0), lon);
+        if fresh || k != self.globe.body {
+            let (lat, lon) = if w.frame_at(self.me.pos) == k { nav::geo(self.me.pos - w.bodies[k].centre, self.globe.zeros[k]) } else { (0.0, 0.0) };
+            (self.globe.view.lat, self.globe.view.lon) = (lat.clamp(-89.0, 89.0), lon);
+        }
+        (self.globe.body, self.globe.zoom) = (k, 1.0);
     }
 
     /// A press on the globe (not on a button): a drag begins; it is a click if the pointer has not moved
@@ -171,7 +179,7 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(_, p)| p.body == b)
-            .filter_map(|(k, p)| g.view.project(p.rel, g.zeros[b]).map(|(px, py)| (k, (px - x).hypot(py - y))))
+            .filter_map(|(k, p)| g.at(b, &g.view, p.rel).map(|(px, py)| (k, (px - x).hypot(py - y))))
             .filter(|(_, d)| *d < 12.0)
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(k, _)| k)
@@ -184,17 +192,21 @@ impl App {
     }
 
     /// A click at the pointer. In the system: on a body it focuses it, as near as it was (the same pixels a
-    /// metre). On the globe: on a waypoint it opens its page (a right click takes it away), elsewhere it drops a
+    /// metre); on the focused body's disc once its marks show, it is the globe's. On the globe: on a waypoint it opens its page (a right click takes it away), elsewhere it drops a
     /// new one on the ground there; survival only on land it has charted (ADR 0077).
     fn globe_click(&mut self, back: bool) {
         if globe::system(self.globe.zoom) {
             let d = self.globe_dots();
-            if let Some(k) = globe::pick(&d[..self.world.bodies.len()], self.pointer.0 as f64, self.pointer.1 as f64).filter(|_| !back) {
-                let (was, zoom) = (self.world.bodies[self.globe.body].radius, self.globe.zoom);
-                self.globe_focus(k);
-                self.globe.zoom = (zoom * self.world.bodies[k].radius / was).clamp(self.globe_least(), globe::ZOOM_MAX);
+            match globe::system_click(&d[..self.world.bodies.len()], self.globe.body, self.pointer.0 as f64, self.pointer.1 as f64, MARKS_PX) {
+                globe::SystemClick::Globe => {}
+                globe::SystemClick::Focus(k) if !back => {
+                    let (was, zoom) = (self.world.bodies[self.globe.body].radius, self.globe.zoom);
+                    self.globe_focus(k, false);
+                    self.globe.zoom = (zoom * self.world.bodies[k].radius / was).clamp(self.globe_least(), globe::ZOOM_MAX);
+                    return;
+                }
+                _ => return,
             }
-            return;
         }
         match (self.globe_mark_under(), back) {
             (Some(k), true) => self.remove_waypoint(k),
@@ -203,7 +215,7 @@ impl App {
             (None, false) => {
                 let b = self.globe.body;
                 let Some(Some(seen)) = self.globe.seen.get(b) else { return };
-                let Some(d) = self.globe.view.pick(self.pointer.0 as f64, self.pointer.1 as f64, self.globe.zeros[b]) else { return };
+                let Some(d) = self.globe.pick(b, &self.globe.view, self.pointer.0 as f64, self.pointer.1 as f64) else { return };
                 let (lat, lon) = nav::geo(d, self.globe.zeros[b]);
                 if !self.creative && !seen.get(globe::texel(lat, lon, seen.size)) {
                     self.note("that land is not charted yet: go and see it first".into());
@@ -229,7 +241,7 @@ impl App {
     /// Button k of the globe's page: a body's (its globe, from any zoom), then Back.
     pub(crate) fn globe_button(&mut self, k: usize) {
         match self.globe_order().get(k) {
-            Some(&(b, _)) => self.globe_focus(b),
+            Some(&(b, _)) => self.globe_focus(b, false),
             None => self.set_menu(None),
         }
     }
@@ -258,7 +270,7 @@ impl App {
         let (g, w) = (&self.globe, &self.world);
         let (b, zero, v) = (g.body, g.zeros[g.body], g.view);
         let body = &w.bodies[b];
-        let s = globe::scale(lh as f64, g.zoom, body.radius);
+        let s = v.r / body.radius;
         let sys = globe::system(g.zoom);
         let row = |i: usize| engine::bodies::BODIES.get(i).map_or([0.7; 3], |r| r.colour);
         p.rect(0.0, 0.0, lw, lh, [0.02, 0.02, 0.05, 0.94], 0);
@@ -267,31 +279,28 @@ impl App {
         let ball = |p: &mut hud::Paint, d: &globe::Dot, c: [f32; 3]| p.rect((d.x - d.r) as f32, (d.y - d.r) as f32, 2.0 * d.r as f32, 2.0 * d.r as f32, [c[0], c[1], c[2], 1.0], GLYPH_DISC);
         let on_screen = |x: f64, y: f64, m: f64| x > -m && y > -m && x < lw as f64 + m && y < lh as f64 + m;
         if sys {
-            // the orbits: each its body's colour, dotted every few pixels, round its parent where it is now; a moon's
-            // too small to tell from its planet is left out
+            // the orbits: each its body's colour, a line of 2 px dots a dot's width apart, clipped to the screen, round
+            // its parent where it is now (made each frame, `globe::orbit`, so it runs through the body); a moon's too
+            // small to tell from its planet is left out
             let c = w.pose(b, w.time).centre;
-            let mut left = 8000;
-            for (i, line) in g.orbits.iter().enumerate().take(n) {
+            let mut left = 12000;
+            for i in 0..n {
+                let line = globe::orbit(w, i, globe::ORBIT_POINTS);
                 let parent = if w.bodies[i].parent == INERTIAL { w.sky.sun(w.time) } else { w.pose(w.bodies[i].parent, w.time).centre };
                 let xy = |o: DVec3| (v.cx + (parent + o - c).x * s, v.cy - (parent + o - c).y * s);
-                if line.first().is_none_or(|o| o.length() * s < 8.0) {
+                if line[0].length() * s < 8.0 {
                     continue;
                 }
                 let col = row(i);
-                for k in 0..line.len() {
-                    let (a, e) = (xy(line[k]), xy(line[(k + 1) % line.len()]));
-                    if !on_screen(a.0, a.1, 0.0) && !on_screen(e.0, e.1, 0.0) {
-                        continue;
-                    }
-                    let steps = ((e.0 - a.0).hypot(e.1 - a.1) / 5.0).ceil().clamp(1.0, 400.0) as usize;
+                for k in 0..line.len() - 1 {
+                    let Some((a, e)) = globe::clip(xy(line[k]), xy(line[k + 1]), (lw as f64, lh as f64)) else { continue };
+                    let steps = (((e.0 - a.0).hypot(e.1 - a.1) / 2.0).ceil().max(1.0) as usize).min(left);
                     for t in 0..steps {
                         let u = t as f64 / steps as f64;
                         let (x, y) = (a.0 + (e.0 - a.0) * u, a.1 + (e.1 - a.1) * u);
-                        if left > 0 && on_screen(x, y, 0.0) {
-                            p.rect(x as f32 - 1.0, y as f32 - 1.0, 2.0, 2.0, [col[0], col[1], col[2], 0.5], 0);
-                            left -= 1;
-                        }
+                        p.rect(x as f32 - 1.0, y as f32 - 1.0, 2.0, 2.0, [col[0], col[1], col[2], 0.5], 0);
                     }
+                    left -= steps;
                 }
             }
             // every body but the focused one (drawn next, as its globe or ball), and the sun
@@ -311,18 +320,19 @@ impl App {
             p.text(v.cx as f32 - hud::text_width("drawing the map...") / 2.0, v.cy as f32, "drawing the map...", [1.0, 1.0, 1.0, 0.9]);
         }
         // a mark sits on the ground the shader draws, its relief included
-        let at = |rel: DVec3| v.project_at(rel, zero, g.lift(b, rel)).map(|(x, y)| (x as f32, y as f32));
+        let at = |rel: DVec3| g.at(b, &v, rel).map(|(x, y)| (x as f32, y as f32));
         // what building and digging made of the columns the client was told of, once a block is a pixel (a block at
         // the least `PX` wide, so one shows); survival's only on land it has seen
         if !sys && s >= globe::EDITS_FROM {
             let seen = g.seen.get(b).and_then(Option::as_ref);
             let k = (s.max(PX) as f32).ceil();
-            for t in g.tops.range((b as u8, 0, i32::MIN, i32::MIN)..=(b as u8, u8::MAX, i32::MAX, i32::MAX)).map(|e| e.1) {
-                if !self.creative && seen.is_none_or(|m| !m.get(globe::texel(nav::geo(t.dir, zero).0, nav::geo(t.dir, zero).1, m.size))) {
+            for t in g.visible(b, body, &v, (lw as f64, lh as f64), EDITS_MAX) {
+                let (lat, lon) = nav::geo(t.dir, zero);
+                if !self.creative && seen.is_none_or(|m| !m.get(globe::texel(lat, lon, m.size))) {
                     continue;
                 }
                 if let Some((x, y)) = at(t.dir * body.radius).filter(|&(x, y)| on_screen(x as f64, y as f64, k as f64)) {
-                    let c = globe::top_colour(t);
+                    let c = globe::top_colour(&t);
                     p.rect(x - k / 2.0, y - k / 2.0, k, k, [c[0], c[1], c[2], 1.0], 0);
                 }
             }
@@ -425,7 +435,7 @@ impl App {
         }
         p.text_px(24.0, 20.0, &body.name, [1.0, 1.0, 1.0, 0.95], hud::PX * 1.5);
         // the coordinates under the pointer are creative's, like the compass's read-out (ADR 0077)
-        let under = v.pick(self.pointer.0 as f64, self.pointer.1 as f64, zero).filter(|_| self.creative && !sys).map(|d| format!("{} {}", body.name, nav::geo_text(nav::geo(d, zero))));
+        let under = g.pick(b, &v, self.pointer.0 as f64, self.pointer.1 as f64).filter(|_| self.creative && !sys).map(|d| format!("{} {}", body.name, nav::geo_text(nav::geo(d, zero))));
         let hint = if sys {
             "The system: a click on a body focuses it, the wheel zooms in to its globe. A button goes to a body's globe. M or Esc closes."
         } else {

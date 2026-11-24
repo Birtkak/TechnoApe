@@ -82,8 +82,9 @@ const MARS: [[u8; 3]; 11] = [
 
 /// A body's picture, `size` texels, as u32s (`pack`: red the lowest byte, the height the top one): the ground by
 /// biome (Luna's by kind), the sea by its depth, lakes and rivers blue; and how far its relief stands out, a share
-/// of the radius (`lift`), the sea a level surface. `zero` is where longitude 0 runs. Some tens of ms: a worker's.
-pub fn image(map: &Map, zero: DVec3, size: (usize, usize)) -> (Vec<u32>, f64) {
+/// of the radius (`lift`) up to `cap` (`relief_max`), the sea a level surface. `zero` is where longitude 0 runs.
+/// Some tens of ms: a worker's.
+pub fn image(map: &Map, zero: DVec3, size: (usize, usize), cap: f64) -> (Vec<u32>, f64) {
     let (w, h) = size;
     let m = map.m as usize;
     let grid = Grid::bare(m, 1.0);
@@ -103,7 +104,7 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize)) -> (Vec<u32>, f64) {
     let (lo, hi) = ground.iter().fold((f32::MAX, f32::MIN), |(a, b), &z| (a.min(z), b.max(z)));
     let span = (hi - lo).max(1e-3);
     let r = map.n as f64 * 2.0 / PI;
-    let relief = (RELIEF * span as f64 / r).min(RELIEF_MAX);
+    let relief = (RELIEF * span as f64 / r).min(cap);
     // a texel's metres north, for the slope
     let dy = PI * r / h as f64;
     let mut out: Vec<u32> = (0..w * h)
@@ -154,10 +155,18 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize)) -> (Vec<u32>, f64) {
     (out, relief)
 }
 
-/// How much the globe's relief is stretched over the body's own (heights over radius), and the most it may stand
-/// out, a share of the radius: the map's taste knobs (draft "The map zooms out to the system").
+/// How much the globe's relief is stretched over the body's own (heights over radius): the map's taste knob (draft
+/// "The map zooms out to the system"), with the most each body's may stand out (`relief_max`).
 pub const RELIEF: f64 = 1.0;
-pub const RELIEF_MAX: f64 = 0.025;
+/// The most a body's globe relief stands out, a share of its radius, by name: the one table of the taste knob
+/// (Terra and Luna higher so they read as small worlds, not painted balls; Mars's dichotomy reads as a potato over 2.5 %).
+pub fn relief_max(name: &str) -> f64 {
+    match name {
+        "Terra" => 0.06,
+        "Luna" => 0.05,
+        _ => 0.025,
+    }
+}
 
 /// A texel: its colour in the low bytes, its height in the top one (1 the lowest of the body, 255 the highest; 0 no
 /// picture).
@@ -244,7 +253,7 @@ pub struct View {
 
 impl View {
     /// East, north and towards the viewer at the globe's middle, in the body's frame.
-    fn axes(&self, zero: DVec3) -> [DVec3; 3] {
+    pub fn axes(&self, zero: DVec3) -> [DVec3; 3] {
         let d = dir(self.lat, self.lon, zero);
         let lo = self.lon.to_radians() + zero.y.atan2(zero.x);
         let e = DVec3::new(-lo.sin(), lo.cos(), 0.0);
@@ -297,8 +306,21 @@ impl View {
     }
 }
 
+/// Steps the march takes through a chord of `chord` radii on a picture `width` texels round: two a texel, so a
+/// one-texel ridge is never stepped over (between 8 and 192). The shader's rule (overlay.wgsl `globe_px`) too.
+pub fn march_steps(chord: f64, width: usize) -> usize {
+    (chord * width as f64 / PI).ceil().clamp(8.0, 192.0) as usize
+}
+
 /// A column's key on the map: its body, face and column.
 pub type Column = (u8, u8, i32, i32);
+/// The edited columns are kept by tiles of `TILE` x `TILE` columns (its body, face and tile), so the screen's
+/// share of them is found without walking the rest (`State::visible`).
+pub type Tile = (u8, u8, i32, i32);
+pub const TILE: i32 = 64;
+fn tile_of(k: Column) -> Tile {
+    (k.0, k.1, k.2.div_euclid(TILE), k.3.div_euclid(TILE))
+}
 
 /// The globe in the game (`globe_ui.rs`): each body's picture as the workers make it, what was seen and its
 /// file, the view and the body focused, a drag under way, the orbits, and what building and digging made of
@@ -336,11 +358,13 @@ pub struct State {
     /// Every player the server lists, with where they are (`ToClient::Players`), and this player's id in it.
     pub others: Vec<engine::net::Player>,
     pub id: u32,
-    /// Each body's orbit around its parent (`orbit`), made the first time the system view draws it.
-    pub orbits: Vec<Vec<DVec3>>,
-    /// The columns an edit changed (`top`), and those touched since, with the highest layer touched.
-    pub tops: std::collections::BTreeMap<Column, Top>,
+    /// The columns an edit changed (`top`) by tile, and those touched since, with the highest layer touched; and
+    /// by body those touched while the body was not loaded, worked out when it is.
+    pub tops: std::collections::BTreeMap<Tile, std::collections::BTreeMap<(i32, i32), Top>>,
     pub touched: std::collections::BTreeMap<Column, i32>,
+    pub waiting: Vec<std::collections::BTreeMap<Column, i32>>,
+    /// Each body's most relief (`relief_max`).
+    pub caps: Vec<f64>,
 }
 
 impl State {
@@ -381,19 +405,63 @@ impl State {
             saved: std::time::Instant::now(),
             others: Vec::new(),
             id: 0,
-            orbits: Vec::new(),
             tops: Default::default(),
             touched: Default::default(),
+            waiting: vec![Default::default(); n],
+            caps: rows.iter().map(|r| relief_max(&r.name)).collect(),
         }
     }
     /// Starts body `b`'s picture of `map` on a worker of its own (tens of ms), once.
     pub fn ask(&mut self, b: usize, map: std::sync::Arc<Map>) {
+        self.ask_with(b, move || Some(map));
+    }
+    /// `ask` with the map still to get on the worker (a body not loaded: its bake from memory or disk, or baked).
+    pub fn ask_with(&mut self, b: usize, map: impl FnOnce() -> Option<std::sync::Arc<Map>> + Send + 'static) {
         let (Some(Some(slot)), false) = (self.slots.get(b), self.asked[b]) else { return };
-        let (size, zero, tx) = (slot.size, self.zeros[b], self.pictures.0.clone());
+        let (size, zero, cap, tx) = (slot.size, self.zeros[b], self.caps[b], self.pictures.0.clone());
         self.asked[b] = true;
         let _ = std::thread::Builder::new().name("globe picture".into()).spawn(move || {
-            let _ = tx.send((b, image(&map, zero, size)));
+            if let Some(map) = map() {
+                let _ = tx.send((b, image(&map, zero, size, cap)));
+            }
         });
+    }
+    /// The direction on body b's globe under pixel (x, y) of view v: where the ray meets its ground as the shader
+    /// marches it (`lift`, `march_steps`), so a click is where the mark under it is drawn; None off the globe.
+    pub fn pick(&self, b: usize, v: &View, x: f64, y: f64) -> Option<DVec3> {
+        let zero = self.zeros[b];
+        let rel = match (self.slots.get(b).copied().flatten(), self.heights.get(b).is_some_and(|h| !h.is_empty())) {
+            (Some(s), true) if self.relief[b] > 0.0 => (self.relief[b], s.size.0),
+            _ => return v.pick(x, y, zero),
+        };
+        let (p, q) = ((x - v.cx) / v.r, (v.cy - y) / v.r);
+        let s = p * p + q * q;
+        if s > 1.0 {
+            return None;
+        }
+        let [e, n, d] = v.axes(zero);
+        let at = |t: f64| e * p + n * q + d * t;
+        let under = |t: f64| at(t).length() <= self.lift(b, at(t));
+        let t0 = (1.0 - s).sqrt();
+        let inner = (1.0 - rel.0) * (1.0 - rel.0);
+        let t1 = if s < inner { (inner - s).sqrt() } else { -t0 };
+        let k = march_steps(t0 - t1, rel.1);
+        let step = (t0 - t1) / k as f64;
+        let (mut above, mut below) = match (0..=k).map(|i| t0 - step * i as f64).find(|&t| under(t)) {
+            Some(t) => ((t + step).min(t0), t),
+            // a ray past the lowest ground's sphere misses; one that reaches it meets it there (the sea's level)
+            None if s >= inner => return None,
+            None => (t1, t1),
+        };
+        for _ in 0..6 {
+            let t = 0.5 * (above + below);
+            if under(t) {
+                below = t;
+            } else {
+                above = t;
+            }
+        }
+        Some(at(below).normalize())
     }
     /// A finished picture, if one came: its body and texels.
     pub fn take(&mut self) -> Option<(usize, Vec<u32>)> {
@@ -411,6 +479,11 @@ impl State {
             }
             _ => 1.0,
         }
+    }
+    /// Where a mark at `rel` from body b's centre is drawn in view v: on its ground (`lift`); what a click on it is
+    /// tested against, so the two never part.
+    pub fn at(&self, b: usize, v: &View, rel: DVec3) -> Option<(f64, f64)> {
+        v.project_at(rel, self.zeros[b], self.lift(b, rel))
     }
     /// Every mask, one after another as the buffer and the file hold them.
     pub fn masks(&self) -> Vec<u32> {
@@ -435,15 +508,80 @@ impl State {
     /// Works out up to `n` touched columns' tops against `w` (each a walk down a few cells): the frame's budget,
     /// so an edit never costs more than that whatever the server sends at once.
     pub fn refresh(&mut self, w: &World, n: usize) {
+        // a body loaded since: what was touched on it while it was not
+        for (b, waiting) in self.waiting.iter_mut().enumerate() {
+            if !waiting.is_empty() && w.loaded(b) {
+                self.touched.append(waiting);
+            }
+        }
         for _ in 0..n {
             let Some((k, z)) = self.touched.pop_first() else { return };
             let (body, face, i, j) = k;
-            let from = self.tops.get(&k).map_or(z, |t| t.z.max(z));
+            if !w.loaded(body as usize) {
+                let at = self.waiting[body as usize].entry(k).or_insert(z);
+                *at = (*at).max(z);
+                continue;
+            }
+            let from = self.top_of(k).map_or(z, |t| t.z.max(z));
             match top(w, Block { body, face, pos: glam::IVec3::new(i, j, from) }) {
-                Some(t) => self.tops.insert(k, t),
-                None => self.tops.remove(&k),
-            };
+                Some(t) => {
+                    self.tops.entry(tile_of(k)).or_default().insert((i, j), t);
+                }
+                None => {
+                    if let Some(tile) = self.tops.get_mut(&tile_of(k)) {
+                        tile.remove(&(i, j));
+                        if tile.is_empty() {
+                            self.tops.remove(&tile_of(k));
+                        }
+                    }
+                }
+            }
         }
+    }
+    /// Column k's top as edits left it, if they changed it.
+    pub fn top_of(&self, k: Column) -> Option<&Top> {
+        self.tops.get(&tile_of(k))?.get(&(k.2, k.3))
+    }
+    /// How many columns edits changed.
+    #[cfg(test)]
+    pub fn edited(&self) -> usize {
+        self.tops.values().map(|t| t.len()).sum()
+    }
+    /// The edited columns of body b that may be in the screen (w x h) of view v, `cap` at the most: those of the
+    /// tiles its ground falls in, found from a grid of points picked on it and its rim (a tile's margin round),
+    /// so a frame's work is the screen's, never everything ever built.
+    pub fn visible(&self, b: usize, body: &engine::world::Body, v: &View, (w, h): (f64, f64), cap: usize) -> Vec<Top> {
+        const S: usize = 16;
+        let zero = self.zeros[b];
+        let mut boxes: [Option<[i32; 4]>; 6] = [None; 6];
+        let grid = (0..=S * S + 2 * S).map(|k| (w * (k % (S + 1)) as f64 / S as f64, h * (k / (S + 1)) as f64 / S as f64));
+        let rim = (0..64).map(|k| {
+            let a = k as f64 / 64.0 * 2.0 * PI;
+            (v.cx + v.r * 0.999 * a.cos(), v.cy + v.r * 0.999 * a.sin())
+        });
+        for (x, y) in grid.chain(rim.filter(|&(x, y)| x >= 0.0 && y >= 0.0 && x <= w && y <= h)) {
+            let Some(d) = v.pick(x, y, zero) else { continue };
+            let (f, i, j) = body.locate(d);
+            let (ti, tj) = ((i / TILE as f64).floor() as i32, (j / TILE as f64).floor() as i32);
+            let bx = boxes[f].get_or_insert([ti, tj, ti, tj]);
+            *bx = [bx[0].min(ti), bx[1].min(tj), bx[2].max(ti), bx[3].max(tj)];
+        }
+        let mut out = Vec::new();
+        // shortcut: a face whose corner pokes in between the points (under a tile's margin) is missed; more points if one is
+        for (f, bx) in boxes.iter().enumerate() {
+            let Some([i0, j0, i1, j1]) = *bx else { continue };
+            for ti in i0 - 1..=i1 + 1 {
+                for tile in self.tops.range((b as u8, f as u8, ti, j0 - 1)..=(b as u8, f as u8, ti, j1 + 1)).map(|e| e.1) {
+                    for t in tile.values() {
+                        if out.len() >= cap {
+                            return out;
+                        }
+                        out.push(*t);
+                    }
+                }
+            }
+        }
+        out
     }
 }
 
@@ -470,7 +608,9 @@ pub fn top(w: &World, b: Block) -> Option<Top> {
     let mut c = Block { pos: glam::IVec3::new(b.pos.x, b.pos.y, b.pos.z.max(ground + 1)), ..b };
     for _ in 0..512 {
         let m = w.edit(c).unwrap_or_else(|| w.generated_under(c, h));
-        if engine::blocks::BLOCKS.solid(m) || c.pos.z <= 0 {
+        // over the ground only an edit is a build: generation's own there is a plant (a trunk left of a felled tree)
+        let built = c.pos.z <= ground || w.edit(c).is_some();
+        if built && engine::blocks::BLOCKS.solid(m) || c.pos.z <= 0 {
             let dir = body.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5);
             return (c.pos.z != ground || w.edit(c).is_some_and(|e| e != w.generated_under(c, h))).then_some(Top { block: m, z: c.pos.z, dz: c.pos.z - ground, dir });
         }
@@ -496,7 +636,9 @@ pub const MIN_PX: f64 = 4.0;
 pub fn system(zoom: f64) -> bool {
     zoom < 1.0
 }
-/// Pixels a metre at `zoom` on a body of radius r on a screen h high: at zoom 1 its globe fills `fit(h)`.
+/// Pixels a metre at `zoom` on a body of radius r on a screen h high: at zoom 1 its globe fills `fit(h)` (the
+/// game takes it as the view's radius over the body's, `globe_ui`).
+#[cfg(test)]
 pub fn scale(h: f64, zoom: f64, r: f64) -> f64 {
     fit(h) * zoom / r
 }
@@ -591,18 +733,57 @@ pub fn order(parents: &[usize]) -> Vec<(usize, usize)> {
     (0..parents.len()).filter(|&r| parents[r] == engine::world::INERTIAL).flat_map(|r| (0..parents.len()).filter(move |&i| root(i).0 == r).map(move |i| (i, root(i).1))).collect()
 }
 
-/// Body i's orbit as `n` points around its parent's centre (the sun's for one that circles it): its pose at n
-/// times over one period, by the same `World::pose` the sky draws, so the line runs through where it is. Made
-/// once a body; drawn around the parent where it is now.
+/// What a click in the system view at (x, y) does (`pick` on the dots): focuses a body, or on the focused body's
+/// disc once it is `large` pixels in radius (its globe drawn with its marks) is a click on that globe.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SystemClick {
+    Nothing,
+    Focus(usize),
+    Globe,
+}
+pub fn system_click(dots: &[Dot], focus: usize, x: f64, y: f64, large: f64) -> SystemClick {
+    match pick(dots, x, y) {
+        Some(k) if k == focus && dots[k].r >= large => SystemClick::Globe,
+        Some(k) => SystemClick::Focus(k),
+        None => SystemClick::Nothing,
+    }
+}
+
+/// Points an orbit is drawn through (`orbit`).
+pub const ORBIT_POINTS: usize = 256;
+
+/// Body i's orbit as `n + 1` points around its parent's centre (the sun's for one that circles it), the first and
+/// the last the same: its pose over one period by the same `World::pose` the sky draws, the middle point where it
+/// is now and the points closest there (the phase the cube of an even step), so the line runs through the body
+/// and follows its path at any zoom its disc shows at. Made every frame the system shows.
 pub fn orbit(w: &World, i: usize, n: usize) -> Vec<DVec3> {
     let b = &w.bodies[i];
     let parent = |t: f64| if b.parent == engine::world::INERTIAL { w.sky.sun(t) } else { w.pose(b.parent, t).centre };
-    (0..n)
+    (0..=n)
         .map(|k| {
-            let t = w.time + b.period * k as f64 / n as f64;
+            let x = 2.0 * k as f64 / n as f64 - 1.0;
+            let t = w.time + b.period * 0.5 * x * x * x;
             w.pose(i, t).centre - parent(t)
         })
         .collect()
+}
+
+/// Segment a..b clipped to the box (0, 0)-(w, h) (Liang-Barsky), None when it misses it.
+pub fn clip(a: (f64, f64), b: (f64, f64), (w, h): (f64, f64)) -> Option<((f64, f64), (f64, f64))> {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for (p, q) in [(-dx, a.0), (dx, w - a.0), (-dy, a.1), (dy, h - a.1)] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+        } else if p < 0.0 {
+            t0 = t0.max(q / p);
+        } else {
+            t1 = t1.min(q / p);
+        }
+    }
+    (t0 <= t1).then(|| ((a.0 + dx * t0, a.1 + dy * t0), (a.0 + dx * t1, a.1 + dy * t1)))
 }
 
 /// The radius at which the whole globe fits a screen of height h, pixels.
@@ -751,6 +932,15 @@ mod tests {
         let far = 4.6e8;
         assert!((scale(h, least(r, far), r) * far - 0.45 * h).abs() < 1e-6);
         assert_eq!(least(r, r * 0.5), 1.0, "never past the globe");
+        // the focused body's dot is the globe's disc at every zoom it is drawn at (globe_ui: view.r = fit(h) * zoom,
+        // the dots at view.r over the radius), so the zoom runs on without a jump
+        let w = world_at(0.0);
+        for zoom in [0.05, 0.5, 0.99] {
+            let vr = fit(h) * zoom;
+            let d = dots(&w, 0, (0.0, 0.0), vr / w.bodies[0].radius);
+            assert!((d[0].r - vr.max(MIN_PX)).abs() < 1e-9, "{zoom}: {} against {vr}", d[0].r);
+            assert!((scale(h, zoom, w.bodies[0].radius) - vr / w.bodies[0].radius).abs() < 1e-12);
+        }
     }
 
     /// Every body of the world's list shows on the system view, the sun last; a far body at least `MIN_PX`, a near
@@ -828,29 +1018,177 @@ mod tests {
         assert_eq!(crowd(&[]), None);
     }
 
-    /// Each body's orbit, made at one time, still runs through where the body is later: it is the sky's own path.
+    /// Each body's orbit line, as drawn, runs through the body and follows its path within a pixel over a screen's
+    /// width round it, at a zoom its disc shows at (20 px in radius, and at 1 px); and it closes.
     #[test]
     fn an_orbit_runs_through_the_body() {
-        let mut w = world_at(1000.0);
-        let lines: Vec<Vec<DVec3>> = (0..w.bodies.len()).map(|i| orbit(&w, i, 256)).collect();
+        let w = world_at(1000.0 + 0.37 * 3.1e5);
         for i in 0..w.bodies.len() {
             let b = &w.bodies[i];
-            w.time = 1000.0 + 0.37 * b.period;
-            let parent = if b.parent == engine::world::INERTIAL { DVec3::ZERO } else { w.pose(b.parent, w.time).centre };
-            let at = w.pose(i, w.time).centre - parent;
-            let line = &lines[i];
-            let off = (0..line.len())
-                .map(|k| {
-                    let (a, c) = (line[k], line[(k + 1) % line.len()]);
-                    let u = ((at - a).dot(c - a) / (c - a).length_squared()).clamp(0.0, 1.0);
-                    (a + (c - a) * u - at).length()
-                })
-                .fold(f64::MAX, f64::min);
-            let r = at.length();
-            assert!(off < r * 1e-3, "{}: {off} m off its line of radius {r}", b.name);
-            // and it closes: its last point a step from its first
-            assert!((line[0] - line[line.len() - 1]).length() < r * 0.05, "{}: open", b.name);
+            let rel = |t: f64| w.pose(i, t).centre - if b.parent == engine::world::INERTIAL { w.sky.sun(t) } else { w.pose(b.parent, t).centre };
+            let line = orbit(&w, i, ORBIT_POINTS);
+            let off = |q: DVec3| {
+                line.windows(2)
+                    .map(|s| {
+                        let (a, c) = (s[0], s[1]);
+                        let u = ((q - a).dot(c - a) / (c - a).length_squared().max(1e-30)).clamp(0.0, 1.0);
+                        (a + (c - a) * u - q).length()
+                    })
+                    .fold(f64::MAX, f64::min)
+            };
+            let r = rel(w.time).length();
+            for disc in [20.0, 1.0] {
+                // pixels a metre with the body's disc `disc` pixels in radius; the path 2000 px either side of it
+                let s = disc / b.radius;
+                let span = (2000.0 / s / (2.0 * PI * r)).min(0.5);
+                for k in -20..=20 {
+                    let t = w.time + b.period * span * k as f64 / 20.0;
+                    let px = off(rel(t)) * s;
+                    assert!(px < 1.0, "{} (disc {disc} px): {px} px off its line at {k}/20 of {span} of a period", b.name);
+                }
+            }
+            assert!((line[0] - line[line.len() - 1]).length() < r * 1e-6, "{}: open", b.name);
         }
+    }
+
+    /// Segments are clipped to the screen: one across it with both ends off it is kept, one beside it is not.
+    #[test]
+    fn a_segment_across_the_screen_is_drawn() {
+        let box_ = (800.0, 600.0);
+        let (a, b) = clip((-100.0, 300.0), (900.0, 300.0), box_).expect("across the screen");
+        assert!((a.0 - 0.0).abs() < 1e-9 && (b.0 - 800.0).abs() < 1e-9 && a.1 == 300.0);
+        assert_eq!(clip((-100.0, -10.0), (900.0, -5.0), box_), None, "over the top");
+        assert_eq!(clip((10.0, 10.0), (20.0, 20.0), box_), Some(((10.0, 10.0), (20.0, 20.0))), "inside it whole");
+        assert_eq!(clip((-50.0, 700.0), (700.0, -50.0), box_).map(|s| s.0 .0.round()), Some(50.0), "a diagonal through a corner's side");
+    }
+
+    /// In the system view a click on the focused body's disc, once it is large, is the globe's (a waypoint), not a
+    /// focus that would turn it back; a small one, or another body, is focused.
+    #[test]
+    fn a_click_on_the_large_focused_disc_is_the_globes() {
+        let d = [Dot { x: 500.0, y: 400.0, r: 420.0 }, Dot { x: 960.0, y: 400.0, r: 6.0 }];
+        assert_eq!(system_click(&d, 0, 300.0, 300.0, 40.0), SystemClick::Globe);
+        assert_eq!(system_click(&d, 0, 961.0, 401.0, 40.0), SystemClick::Focus(1), "a moon over it is itself");
+        assert_eq!(system_click(&d, 1, 300.0, 300.0, 40.0), SystemClick::Focus(0));
+        let small = [Dot { r: 20.0, ..d[0] }, d[1]];
+        assert_eq!(system_click(&small, 0, 505.0, 405.0, 40.0), SystemClick::Focus(0));
+        assert_eq!(system_click(&d, 0, 10.0, 10.0, 40.0), SystemClick::Nothing);
+    }
+
+    /// A State with body b's picture of one height everywhere (`height`, 1..=255) and `relief`.
+    fn level(b: usize, height: u8, relief: f64) -> State {
+        let rows = &engine::bodies::BODIES;
+        let mut g = State::new(rows, vec![-DVec3::X; rows.len()], None);
+        let size = g.slots[b].unwrap().size;
+        (g.heights[b], g.relief[b], g.got[b]) = (vec![height; size.0 * size.1], relief, true);
+        g
+    }
+
+    /// A mark is drawn on the raised ground (`State::at`); a click at the pixel it is drawn at picks the place it
+    /// marks (`State::pick`, the shader's march), near the limb too, where the unit sphere's pick is far off.
+    #[test]
+    fn a_click_on_a_mark_at_the_limb_picks_its_place() {
+        let g = level(0, 1, 0.06);
+        let zero = g.zeros[0];
+        let v = View { cx: 960.0, cy: 540.0, r: 432.0 * 4.0, lat: 10.0, lon: 20.0 };
+        let [e, _, f] = v.axes(zero);
+        for tilt in [0.2f64, 0.5, 1.2, 1.45] {
+            // a place `tilt` radians from the middle towards the east limb
+            let d = (f * tilt.cos() + e * tilt.sin()).normalize();
+            let (x, y) = g.at(0, &v, d).unwrap();
+            let picked = g.pick(0, &v, x, y).expect("on the globe");
+            let px = (picked - d).length() * v.r;
+            assert!(px < 2.0, "tilt {tilt}: the pick is {px} px from the mark");
+            // the unit sphere's pick misses it by more than a mark's 12 px hit radius near the limb
+            if tilt > 1.0 {
+                let flat = v.pick(x, y, zero).unwrap();
+                let (fx, fy) = v.project_at(flat, zero, g.lift(0, flat)).unwrap();
+                assert!((fx - x).hypot(fy - y) > 12.0, "tilt {tilt}: the old pick would have found it");
+            }
+        }
+        // a ridge one texel wide (east to west) near the limb is met wherever the ray crosses it, not stepped over
+        let mut g = level(0, 1, 0.06);
+        let size = g.slots[0].unwrap().size;
+        let (lat, lon) = crate::nav::geo((f * 1.4f64.cos() + e * 1.4f64.sin()).normalize(), zero);
+        let ridge = texel(lat, lon, size);
+        for k in [ridge - size.0, ridge, ridge + size.0] {
+            g.heights[0][k] = 255;
+        }
+        let (rlat, rlon) = texel_geo(ridge % size.0, ridge / size.0, size);
+        let dl = 360.0 / size.0 as f64;
+        for u in -4..=4 {
+            // a point inside the ridge, high on it, across its width
+            let d = dir(rlat, rlon + dl * 0.1 * u as f64, zero);
+            let (x, y) = v.project_at(d, zero, 0.99).unwrap();
+            let hit = g.pick(0, &v, x, y).unwrap();
+            let (a, b) = crate::nav::geo(hit, zero);
+            assert_eq!(texel(a, b, size), ridge, "{u}: the ray stepped over the ridge");
+        }
+        assert!(march_steps(0.44, 1024) >= 143 && march_steps(0.0, 1024) == 8);
+    }
+
+    /// The edited columns a frame draws are those the screen holds, `cap` at the most, whatever was ever built:
+    /// 100k columns over the whole body, a close view finds the few under it and every one of them.
+    #[test]
+    fn the_edits_drawn_are_the_screens_and_bounded() {
+        let w = world_at(0.0);
+        let body = &w.bodies[0];
+        let rows = &engine::bodies::BODIES;
+        let mut g = State::new(rows, vec![-DVec3::X; rows.len()], None);
+        let n = body.n;
+        let step = ((6.0 * (n as f64).powi(2) / 100_000.0).sqrt()).floor() as i32;
+        let mut all = 0;
+        for f in 0..6u8 {
+            for i in (0..n).step_by(step as usize) {
+                for j in (0..n).step_by(step as usize) {
+                    let dir = body.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+                    g.tops.entry(tile_of((0, f, i, j))).or_default().insert((i, j), Top { block: 1, z: 1, dz: 1, dir });
+                    all += 1;
+                }
+            }
+        }
+        assert!(all >= 100_000, "{all}");
+        let (sw, sh) = (1920.0, 1080.0);
+        let rel = body.spawn_point() - body.centre;
+        let (lat, lon) = crate::nav::geo(rel, g.zeros[0]);
+        let v = View { cx: sw / 2.0, cy: sh / 2.0, r: fit(sh) * ZOOM_MAX, lat, lon };
+        let t = std::time::Instant::now();
+        let got = g.visible(0, body, &v, (sw, sh), 8000);
+        let took = t.elapsed();
+        let want: Vec<DVec3> = g.tops.values().flat_map(|t| t.values()).map(|t| t.dir).filter(|&d| v.project(d, g.zeros[0]).is_some_and(|(x, y)| x >= 0.0 && y >= 0.0 && x <= sw && y <= sh)).collect();
+        assert!(!want.is_empty(), "some are on the screen");
+        for d in &want {
+            assert!(got.iter().any(|t| t.dir == *d), "a column on the screen is missed");
+        }
+        assert!(got.len() < all / 20, "{} of {all}: the screen's share", got.len());
+        // the whole globe: as many as the cap, never all
+        let whole = View { r: fit(sh), ..v };
+        assert_eq!(g.visible(0, body, &whole, (sw, sh), 8000).len(), 8000);
+        assert!(took.as_secs_f64() < 0.02, "{took:?} a frame (a debug build)");
+    }
+
+    /// An edit on a body not in on this client is kept and shown once the body loads.
+    #[test]
+    fn an_edit_on_a_body_not_loaded_shows_when_it_is() {
+        let rows = &engine::bodies::BODIES;
+        let sources = engine::bodies::sizes(rows, 768, 256).into_iter().enumerate().map(|(i, n)| (n, if i == 2 { engine::world::Source::Later(7) } else { engine::world::Source::Now(None) })).collect();
+        let mut w = World::of_sources(rows, sources, 1, 0.0, engine::world::GENERATION);
+        assert!(!w.loaded(2), "Mars is out");
+        let mut g = State::new(rows, vec![-DVec3::X; rows.len()], None);
+        // the layer over the generated ground as `top` reckons it (the stub's own heights)
+        let at = w.air_over_ground(2, w.bodies[2].spawn_point().normalize());
+        let z = (w.bodies[2].layer_of(w.column_height(at)) - 0.5).floor() as i32 + 1;
+        let ground = Block { pos: glam::IVec3::new(at.pos.x, at.pos.y, z), ..at };
+        for k in 0..3 {
+            let b = Block { pos: ground.pos + glam::IVec3::Z * k, ..ground };
+            w.set_block(b, engine::blocks::BLOCKS.id("stone"));
+            g.touch(b);
+        }
+        g.refresh(&w, 64);
+        assert_eq!(g.edited(), 0, "nothing to work it out against yet");
+        w.lazy[2].as_mut().unwrap().loaded = true;
+        g.refresh(&w, 64);
+        assert_eq!(g.top_of((2, ground.face, ground.pos.x, ground.pos.y)).map(|t| t.dz), Some(3), "the tower, once Mars is in");
     }
 
     /// What building and digging changed shows on the map: a tower and a pit near the spawn are touched, worked
@@ -879,20 +1217,20 @@ mod tests {
         g.refresh(&w, 1);
         assert_eq!(g.touched.len(), 1, "one column a call of one: the budget holds");
         g.refresh(&w, 64);
-        let t = g.tops[&col(tower)];
+        let t = *g.top_of(col(tower)).unwrap();
         assert_eq!((t.block, t.dz), (stone, 5), "the tower's top, five over the ground");
-        let p = g.tops[&col(pit)];
+        let p = *g.top_of(col(pit)).unwrap();
         assert_eq!(p.dz, -3, "the pit's floor, three under");
         assert!(top_colour(&t).iter().sum::<f32>() > top_colour(&Top { dz: 0, ..t }).iter().sum::<f32>(), "a tower brighter");
         // an untouched column is not on it; a column put back is gone from it
-        assert_eq!(g.tops.len(), 2);
+        assert_eq!(g.edited(), 2);
         for k in 0..5 {
             let b = Block { pos: tower.pos + glam::IVec3::Z * k, ..tower };
             w.put_edit(b, None);
             g.touch(b);
         }
         g.refresh(&w, 64);
-        assert!(!g.tops.contains_key(&col(tower)), "{:?}", g.tops.get(&col(tower)));
+        assert!(g.top_of(col(tower)).is_none(), "{:?}", g.top_of(col(tower)));
     }
 
     #[test]
@@ -913,7 +1251,7 @@ mod tests {
             (map.h[c], map.biome[c]) = (50.0, 4);
         }
         let size = (64, 32);
-        let (img, relief) = image(&map, DVec3::Y, size);
+        let (img, relief) = image(&map, DVec3::Y, size, 10.0);
         let rgb = |lat, lon| {
             let v = img[texel(lat, lon, size)];
             [v & 255, v >> 8 & 255, v >> 16 & 255]
@@ -923,7 +1261,8 @@ mod tests {
         assert!(sea[2] > sea[0] && sea[2] > sea[1], "the deep sea is blue: {sea:?}");
         // the relief: the land stands out of a level sea by its height over the radius (40 m), none deeper for the sea
         let at = |lat, lon| lift(img[texel(lat, lon, size)], relief);
-        assert!((relief - RELIEF * 50.0 / (64.0 * 2.0 / PI)).abs() < 1e-9 || relief == RELIEF_MAX, "{relief}");
+        assert!((relief - RELIEF * 50.0 / (64.0 * 2.0 / PI)).abs() < 1e-9, "{relief}");
+        assert_eq!(image(&map, DVec3::Y, size, 0.01).1, 0.01, "the cap holds it");
         assert!((at(0.0, 0.0) - 1.0).abs() < 1e-9 && (at(0.0, 180.0) - (1.0 - relief)).abs() < 1e-9, "land high, sea level");
         assert!(img.iter().all(|t| t >> 24 >= 1), "every texel has its height (0 is no picture)");
         assert_eq!(img.len(), size.0 * size.1);
@@ -936,7 +1275,7 @@ mod tests {
         let m = 8;
         let colour = |kind: u8| {
             let map = Map { version: icy::VERSION, n: 64, m, h: vec![0.0; 6 * 64], biome: vec![kind; 6 * 64], ..Map::empty() };
-            let v = image(&map, DVec3::Y, (16, 8)).0[texel(0.0, 0.0, (16, 8))];
+            let v = image(&map, DVec3::Y, (16, 8), 0.025).0[texel(0.0, 0.0, (16, 8))];
             [v & 255, v >> 8 & 255, v >> 16 & 255]
         };
         let sum = |c: [u32; 3]| c.iter().sum::<u32>();
@@ -953,7 +1292,7 @@ mod tests {
         let m = 8;
         let colour = |kind: u8| {
             let map = Map { version: mars::VERSION, n: 64, m, h: vec![0.0; 6 * 64], biome: vec![kind; 6 * 64], ..Map::empty() };
-            let v = image(&map, DVec3::Y, (16, 8)).0[texel(0.0, 0.0, (16, 8))];
+            let v = image(&map, DVec3::Y, (16, 8), 0.025).0[texel(0.0, 0.0, (16, 8))];
             [v & 255, v >> 8 & 255, v >> 16 & 255]
         };
         for k in [mars::HIGHLAND, mars::PLAIN] {
