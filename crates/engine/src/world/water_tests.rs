@@ -27,7 +27,7 @@ fn tide_cost() {
     let solid_ns = t.elapsed().as_secs_f64() * 1e9 / 100_000.0;
     // sea columns: the face's columns under the sea, every 37th
     let cols: Vec<Col> = (0..b.n).step_by(37).flat_map(|i| (0..b.n).step_by(37).map(move |j| Col::new(0, 2, i, j))).filter(|c| b.col_height(2, c.i(), c.j()) < b.layer_r(b.sea.unwrap()) - 3.0).collect();
-    let (mean, tidal) = (Solid { bodies: &w.bodies, edits: &w.edits, tide: None }, w.ground());
+    let (mean, tidal) = (Solid { bodies: &w.bodies, edits: &w.edits, tide: None, air: None }, w.ground());
     let time = |g: &Solid| {
         let t = Instant::now();
         for _ in 0..20 {

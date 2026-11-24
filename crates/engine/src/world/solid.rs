@@ -8,6 +8,18 @@ pub struct Solid<'a> {
     /// The planet's sea at its tide (ADR 0067): the whole second of world time it was taken at and the tide
     /// then; None, the mean sea.
     pub tide: Option<(i64, Tide)>,
+    /// The air water's phases go by (`liquid::phases`; `World::cool_fluids`): None, `Ground::air`'s default.
+    pub air: Option<Air<'a>>,
+}
+
+/// The air over the ground at a moment, for water's phases: the sky (its year sets ADR 0187's pace, its sun the
+/// season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
+/// the baked climate's year with the season and the hour on top (`sky::temperature`).
+#[derive(Clone, Copy)]
+pub struct Air<'a> {
+    pub sky: &'a Sky,
+    pub t: f64,
+    pub temp: Option<&'a dyn Fn(Col, f64) -> Option<f64>>,
 }
 
 impl<'a> Solid<'a> {
@@ -16,7 +28,36 @@ impl<'a> Solid<'a> {
     pub fn at(bodies: &'a [Arc<Body>], edits: &'a FxMap<Key, FxMap<IVec3, u16>>, sky: &Sky, t: f64) -> Solid<'a> {
         let s = t.floor();
         let tide = bodies.first().filter(|b| b.sea.is_some()).map(|b| (s as i64, sky.tide(s, &b.ocean)));
-        Solid { bodies, edits, tide }
+        Solid { bodies, edits, tide, air: None }
+    }
+    /// The air at layer z of column c, C and Pa (`Ground::air`).
+    fn air_at(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
+        let b = &self.bodies[c.body() as usize];
+        let (face, fi, fj) = (c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
+        let ground = || b.heat(c.face(), c.i(), c.j(), z).map_or(crate::liquid::AMBIENT, |t| t) as f64;
+        if !b.air {
+            // no air: the ground's own heat, nothing to hold a liquid
+            return (ground(), 0.0);
+        }
+        let over = b.layer_r(z) - b.sea.map_or(b.radius, |s| b.layer_r(s));
+        let t = match a.temp.and_then(|f| f(c, z)) {
+            Some(t) => t,
+            // the planet's baked year (the biome's band on an older map), the season and the hour; elsewhere its rock
+            None if c.body() == 0 => {
+                let d = b.dir(face, fi, fj);
+                let ap = crate::bake::air::Params::default();
+                let clim = match b.climate_at(face, fi, fj) {
+                    Some((theta, swing, _)) => Some(((theta - ap.cool(over.max(0.0) as f32)) as f64, swing as f64)),
+                    None => b.biome_at(face, fi, fj, d).map(|bio| crate::sky::BIOME_CLIMATE[bio as usize]),
+                };
+                match clim {
+                    Some((mean, swing)) => crate::sky::temperature(mean, swing, d.z.clamp(-1.0, 1.0).asin(), a.sky.declination(a.t), a.sky.hour_angle(a.t, d)),
+                    None => ground(),
+                }
+            }
+            None => ground(),
+        };
+        (t, crate::liquid::phases::pressure(over, t, self.g(c.body())))
     }
     fn water(&self, c: Col) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
         let tide = if c.body() == 0 { self.tide.as_ref().map(|t| &t.1) } else { None };
@@ -85,6 +126,25 @@ impl Ground for Solid<'_> {
     }
     fn heat(&self, c: Col, z: f64) -> f32 {
         self.bodies[c.body() as usize].rest_heat(c.face(), c.i(), c.j(), z)
+    }
+    fn air(&self, c: Col, z: f64) -> (f64, f64) {
+        match &self.air {
+            Some(a) => self.air_at(a, c, z),
+            None => (crate::liquid::AMBIENT as f64, crate::liquid::phases::ATM),
+        }
+    }
+    fn pace(&self) -> f64 {
+        self.air.as_ref().map_or(1.0, |a| crate::liquid::phases::REAL_YEAR / a.sky.year)
+    }
+    fn ice(&self, c: Col, z: i32) -> bool {
+        let Some(f) = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).freeze.as_ref() else { return false };
+        let ice = BLOCKS.id(&f.into);
+        let k = Key { body: c.body(), face: c.face(), level: 0, pos: IVec3::new(c.i().div_euclid(CS), c.j().div_euclid(CS), z.div_euclid(CS)) };
+        match self.edits.get(&k).and_then(|cells| cells.get(&IVec3::new(c.i(), c.j(), z))) {
+            Some(&m) => m == ice,
+            // the bake's: its sea ice and the plants over the ground
+            None => self.bodies[c.body() as usize].col_plants(c.face(), c.i(), c.j()).iter().any(|&(zz, m)| zz == z && m == ice),
+        }
     }
     fn reach(&self, c: Col) -> u32 {
         self.water(c).map_or(crate::liquid::SEA, |w| w.1)

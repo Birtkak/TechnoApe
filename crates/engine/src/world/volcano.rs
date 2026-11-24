@@ -359,6 +359,40 @@ mod tests {
         assert_eq!((w.block(cell), w.water.total_of(kind), ledger(&w)), (basalt, 0, U));
     }
 
+    /// Water's phases through the world's edits (liquids.md step 5): a pond a block deep under -30 C air freezes, but
+    /// while its cell is taken (a player in it) no ice is set there, every unit booked; free, the ice is set where the
+    /// water was, and in +20 C air it melts back to exactly the block of water it was.
+    #[test]
+    fn freezing_water_never_buries_a_player_and_its_ice_melts_back_in_warm_air() {
+        let mut w = world(false);
+        let water = crate::fluids::WATER;
+        let (cols, z0) = pit(&mut w, 1, 2, U, water);
+        let ice = crate::blocks::BLOCKS.id("ice");
+        let cell = Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z0) };
+        let ledger = |w: &World| w.water.counted() + w.water.vapour.get(&water).copied().unwrap_or(0) + w.water.froze.get(&water).copied().unwrap_or(0);
+        let (cold, warm) = (|_: Col, _: f64| Some(-30.0), |_: Col, _: f64| Some(20.0));
+        for _ in 0..1000 {
+            assert!(w.cool_fluids_in(600.0, |_| true, Some(&cold)).is_empty(), "no ice while the cell is taken");
+            w.step_water();
+            assert_eq!(ledger(&w), U, "every unit booked");
+        }
+        assert_eq!((w.block(cell), w.water.total()), (AIR, 0), "frozen through, its ice waiting for the cell");
+        let mut set = Vec::new();
+        for _ in 0..10 {
+            set.extend(w.cool_fluids_in(600.0, |_| false, Some(&cold)));
+        }
+        assert_eq!(set, vec![(cell, AIR, ice)], "free, the ice is set where the water was");
+        let mut t = 0.0;
+        while w.block(cell) == ice && t < 1e7 {
+            set.extend(w.cool_fluids_in(600.0, |_| false, Some(&warm)));
+            w.step_water();
+            t += 600.0;
+        }
+        eprintln!("melted back in {t:.0} s");
+        assert_eq!(set.last(), Some(&(cell, ice, AIR)), "the ice melted");
+        assert_eq!((w.water.total(), ledger(&w)), (U, U), "back to exactly its block of water");
+    }
+
     /// Two blocks frozen for one cell that was taken (a reaction's two skins in one second): both are set the next
     /// time, the second on the first, in the water over it; none is lost and nothing comes back as lava.
     #[test]

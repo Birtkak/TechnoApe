@@ -44,6 +44,15 @@ pub struct Heat {
     /// Latent heat of its boil, J/kg (0: none given): what a reaction that boils it off takes (`Liquids::react`).
     #[serde(default)]
     pub vaporise: f32,
+    /// Its solid's thermal conductivity, W/(m K) (0: none given): heat up through a sheet of it (`liquid::phases`).
+    #[serde(default)]
+    pub solid_conduct: f32,
+    /// Molar mass, kg/mol, and its triple point's pressure, Pa (0: none given): with `boil` at one atmosphere they set
+    /// its vapour pressure curves, so where it boils at any pressure and where it goes straight from solid to gas.
+    #[serde(default)]
+    pub molar: f32,
+    #[serde(default)]
+    pub triple: f32,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]

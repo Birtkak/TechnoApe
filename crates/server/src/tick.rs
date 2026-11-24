@@ -412,7 +412,16 @@ impl Server {
             let taken: Vec<Block> =self.clients.iter()
                 .flat_map(|c| [0.2, 1.0, phys::HEIGHT - 0.1].map(|h| world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * h)))
                 .collect();
-            for (b, was, m) in self.world.cool_fluids(1.0, |b| taken.contains(&b)) {
+            // the air water's phases go by: the live air grid's on the planet; the heat step runs by the world's clock
+            // (a time warp of n runs n seconds of it a second)
+            let (world, weather) = (&mut self.world, &self.weather);
+            let b0 = world.bodies[0].clone();
+            let live = |c: engine::liquid::Col, z: f64| {
+                let w = weather.as_ref().filter(|_| c.body() == 0)?;
+                let d = b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
+                Some(w.here(d, b0.layer_r(z) - b0.sea.map_or(b0.radius, |s| b0.layer_r(s))).temp as f64)
+            };
+            for (b, was, m) in world.cool_fluids_in(self.warp as f64, |b| taken.contains(&b), Some(&live)) {
                 changed.push((b, m));
                 self.events.push(Event::Edit { at: b, was, now: m, by: None });
             }
@@ -428,6 +437,10 @@ impl Server {
         cols.dedup();
         for b in cols {
             self.world.regap(b);
+        }
+        // an ice block placed, or one an edit beside it laid open, is followed from now on (water's phases)
+        for (b, _) in &changed {
+            self.world.watch_ice_near(*b);
         }
         // piles over a dug cell fall, a pile in a placed one rises (ADR 0074); then every player picks up
         for (b, m) in &changed {
