@@ -337,6 +337,34 @@ different fluids, the denser keeps the gap".
   untouched (it follows the formula until stored). The pot on 1000 C rock now dries faster (the floor no longer
   fades); its 100.000 C and 1.946 C at 700 Pa hold.
 
+### Lava drawn as a cracked crust, oil as a glossy slick with a film [0198, 2026-11-24]
+The developer: "make liquids look more pretty". Lava (side bit 4 in `fs_water`, stored and the volcano's lake) is a
+basalt crust (0.05, 0.043, 0.04), lit by the sun, the sky and 0.6 of the row's light, broken into 1.7 m plates (a
+jittered grid's F2 - F1) whose cracks glow in the row's light; a slow swell of heat (value noise at 0.18 a metre)
+widens the cracks from 13 cm to 50 cm (in F2 - F1 metres) so plates melt to open melt, adds a finer net at 0.4 of the plate size, and
+warms the crust near its cracks; the crust drifts at (0.035, 0.02) columns a second. On the 1/16 m texels at
+`WATER_STEPS`; a fall or a front runs molten,
+streaked down. Oil (side bit 8, `tinted`) takes the water's ripple normal (`rippled`) at half the frequency, a third of
+the pace and 0.05 tilt, a 6 % Fresnel to `sky_colour` along the reflected ray and Luna, a sharp glint (exponent 400
+near), and a thin film's bands (a cosine palette over a drifting thickness and the angle) in drifting patches at 8 to
+25 % of the sky, exaggerated over a real film's few per cent so a slick reads as oil from any angle. The water's own
+look (ADR 0071: ripples, Fresnel, sky and traced reflection, glint, depth through the view ray, shore foam, falls,
+under water) was already what this round set out to add, so it stays as it is.
+Alternatives rejected: a crack pattern from a texture (the grid's noise is per texel already, no new binding); a
+subsurface scatter term on the water's ripple flanks (tried: under 1/255 on the sea at noon, not worth its cost);
+less absorption in green for clearer shallows (tried: the dim bed under the water showed more, so shallows darkened).
+Open: lava's and oil's numbers are shader constants (`LAVA_PLATE`, `LAVA_DRIFT`, `LAVA_CRUST`, oil's in `tinted`), not
+columns of `data/fluids.toml`, whose schema is the engine's; they move to the rows when a second glowing or tinted
+fluid needs other numbers. Lava's flow direction does not move its crust (stored quads carry no flow).
+A cool crack and the fine net are at least one 1/16 m texel across; past a footprint of 4 cm the cracks give way to
+their mean share at that heat (0.13 + 0.3 heat^2 + 0.1 smoothstep(0.3, 0.7, heat), fitted to the pattern) and the
+cores' mean lift (1.18), so a lake looks the same near and far; a fall's streaks sit on texels and fall a texel a step;
+oil's far glint dims as the water's, and its film takes its share of what the Fresnel term leaves.
+Limits: every pattern snaps once an hour, as the time uniform wraps at 3600 s (the water's ripples do too).
+Limits: the patterns sit on face-grid columns, so they cut at cube-face seams (as the water's ripples).
+Limits: any future glowing fluid gets lava's crust (side bit 4 is "glows").
+Limits: oil in a cave reflects the open sky (no rays of its own).
+
 ## The sea and the ledger
 
 - **The sea** is generated from the seed: every column whose ground is under the sea level holds water up to it.
