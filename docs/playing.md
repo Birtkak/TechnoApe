@@ -60,7 +60,8 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   0159), 2 (arcs' basalt flows, round lava tubes, only copper placed for where the spawn is), 3 (karst), 4 (Luna's
   rock field), 5 (Mars, the third body), 6 (the gas giant, the fourth), 7 (the giant's icy moon, the
   fifth), 8 (real gravity), 9 (every body with blocks has the deep grid down to its core: Luna over a metal
-  sea, Mars over a closed floor of iron-nickel, Callisto of stone), 10 (Terra's volcanoes, below), 11 (the geotherm), 12 the newest (ground water, below). A world keeps
+  sea, Mars over a closed floor of iron-nickel, Callisto of stone), 10 (Terra's volcanoes, below), 11 (the geotherm), 12 (ground water, below), 13 the newest (the conformal grid,
+  below). A world keeps
   its generation in its save and sends it to clients and bots; `report=1` prints it as `gen`. For tests and for
   comparing one seed's worlds; a new world without it is the newest.
 - Volcanoes (generation 10, docs/design/volcanoes.md): a few cones on Terra's volcanic arcs (six on the 4 km planet,
@@ -75,6 +76,11 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   table and no higher; bail it and it fills again, counted. No keys or commands. `technoape-server report=1 seed=
   planet=` prints `ground_water`: the table's depth by province, in the wettest and driest quarters, the share of
   tight land (no table), springs and their streams, the flooded caves and the depth at and round the spawn.
+- The conformal grid (generation 13, ADR 0131): every body's block tops are square, a metre at a face's middle and
+  at its edges, smaller only near the cube's 8 corners (about 0.43 m 100 columns from one, 0.3 m in its last 32). A
+  world of generation 12 or older keeps the old grid (1.09 x 0.77 m tops at a face edge's middle); `gen=12` makes a
+  new one on it to compare. No keys or commands; the trial's `warp=` argument is gone, the grid follows the
+  generation.
 - Mars (generation 5): `/goto mars` lands on its day side; `run=stand body=2 at=x,y,z` stands on it (`body=0` Terra,
   `1` Luna), `look=Mars` (or `look=Terra`, `look=Luna`) faces that body's centre from where you stand; `report=1`
   prints a `mars` section (its kinds' shares, heights, the tubes its map marks). Its ground loads when you near
