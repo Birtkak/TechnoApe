@@ -801,6 +801,20 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3], usize)], te
     by + bh
 }
 
+/// The ground's name (its biome, or its province or kind of ground; `nav::ground_name`) in a tag of its own right
+/// of the compass's strip (`compass`: 560 px wide, 10 px down, 40 tall), `a` its opacity while it fades in.
+pub fn ground_tag(p: &mut Paint, name: &str, a: f32) {
+    let px = PX * 0.75;
+    let (x, y, h) = (p.w / 2.0 + 280.0 + 10.0, 10.0, 40.0);
+    let tw = name.chars().count() as f32 * ADV * px;
+    let start = p.out.len();
+    glass(p, x, y, tw + 20.0, h);
+    p.text_px(x + 10.0, y + (h - 8.0 * px) / 2.0, name, [0.72, 0.9, 0.7, 1.0], px);
+    for r in &mut p.out[start..] {
+        r.colour[3] *= a.clamp(0.0, 1.0);
+    }
+}
+
 /// A waypoint seen in the world: a beam of its colour from where it stands (`base`, on the screen) up to
 /// `top`, fading as it rises, and at the top a tag: its icon (`nav::ICONS`), its name and how far.
 pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3], kind: usize, name: &str, far: &str) {
@@ -1427,6 +1441,17 @@ mod tests {
             })
             .collect();
         assert_eq!(bars, [3, 1, 2, 4]);
+    }
+
+    #[test]
+    fn the_ground_s_name_stands_right_of_the_compass_and_fades_in() {
+        let mut p = Paint::new(1920.0, 1080.0);
+        ground_tag(&mut p, "tundra", 0.5);
+        let glyphs: Vec<&Rect> = p.out.iter().filter(|r| r.glyph != 0).collect();
+        // a glyph a letter (and its shadow), every one right of the strip's end (280 px right of the middle)
+        assert_eq!(glyphs.len(), 2 * "tundra".len());
+        assert!(glyphs.iter().all(|r| r.xy[0] * 960.0 > 280.0), "{:?}", glyphs.iter().map(|r| r.xy[0] * 960.0).collect::<Vec<_>>());
+        assert!(p.out.iter().all(|r| r.colour[3] <= 0.5 + 1e-6), "half faded in");
     }
 
     #[test]

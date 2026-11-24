@@ -56,9 +56,9 @@ impl Server {
                 return false;
             }
         }
-        // a solid block never goes where it would trap a player
+        // a solid block never goes where it would trap a player (a spectator is in no cell: it passes through)
         let (world, clients) = (&self.world, &self.clients);
-        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
+        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| !c.spectator && phys::holds(world, &c.phys, b)));
         // a block that hangs (a torch, ADR 0117) goes only where a floor or a wall holds it, and never into water
         if BLOCKS.get(m).is_some_and(|d| d.hangs) && cells.iter().any(|&(b, _)| engine::fall::held_from(world, b).is_none() || world.water_surface(world.block_centre(b)).is_some()) {
             return false;
@@ -297,7 +297,7 @@ impl Server {
             return;
         }
         let world = &self.world;
-        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none())
+        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && !c.spectator && c.vitals.dead.is_none())
             .map(|c| (world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * phys::EYE), c)).collect();
         for &(b, m) in &rocks {
             for (eye, c) in heads.iter_mut() {
@@ -429,7 +429,8 @@ impl Server {
     /// feet's face, so a pile just over a cube face's edge waits until the player steps across.
     pub(super) fn pick_up(&mut self) {
         let Server { clients, piles, piles_changed, world, tick, .. } = self;
-        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none()) {
+        // (a spectator picks up nothing, ADR 0202)
+        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none() && !c.spectator) {
             let feet = c.phys.pos;
             let mid = world.block_at(feet + phys::up(world, feet) * 0.5);
             for (dz, dy, dx) in (-1..=1).flat_map(|z| (-1..=1).flat_map(move |y| (-1..=1).map(move |x| (z, y, x)))) {

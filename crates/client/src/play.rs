@@ -1,26 +1,32 @@
 //! run=play: building, digging and the bucket, `acts=` scripted input, chat and commands, F3 and F9, reconciling with the server (ADR 0025 L: moved out of main.rs).
 use super::*;
 
-/// The playtest menu's rows (F10, bugs/2026-11-11_13-12-42): a name, its steps and what to look for. A step
-/// is a command as typed in the chat, or `eclipse:sun`, `eclipse:luna` (the clock and the player go to the
-/// next one), `fly:<m/s>` (flying, at that speed). A new thing worth a look
-/// gets a row here.
-pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
-    ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
-    ("Eclipse of Luna: in Terra's shadow", &["eclipse:luna"], ""),
-    ("On Luna: 3.7 times less gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 4.4 m here. Terra's night side should fade in, with no hard line."),
-    ("Fast flight: 1000 m/s over Terra", &["/playmode creative", "/goto terra", "fly:1000"], "Fly low and turn hard: the ground should never vanish."),
-    ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
-    ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),
-    ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
-    ("Every block: creative's inventory", &["/playmode creative"], "E opens every block and item in tabs: a click takes a stack, the middle button picks a block in the world."),
-    ("Health and hunger: the bars at 13 and 6", &["/playmode survival", "/heal", "/hurt 7", "/feed 6"], "Two bars over the hotbar: a green cross, an orange stomach. /heal and /feed fill them."),
-    ("Thirst: the third bar at 6", &["/playmode survival", "/heal", "/feed 20", "/thirst 6"], "A blue drop over the hunger bar. The place button held on fresh water with nothing in hand fills it in two seconds; the sea is salt."),
-    ("Low health and an empty stomach", &["/playmode survival", "/heal", "/hurt 17", "/feed 0"], "Health pulses with red corners; hunger is outlined in red and health sinks to 1."),
-    ("The death screen", &["/playmode survival", "/heal", "/hurt 20"], "You died: Respawn puts you at the spawn with full bars."),
-    ("Impact: fly up in creative, then fall in survival", &["/playmode creative", "/goto terra", "fly:20"], "Fly up 10 m or more, type /playmode survival, and fall: the faster you hit, the more it costs. 21 m/s kills."),
-    ("Home at noon, in survival", &["/goto terra", "/time set noon", "/playmode survival"], "Back at the spawn, at noon."),
-];
+/// The playtest menu's rows (F10, rebuilt for the sky, ADR 0202): a name and the sight it takes you to. Each is
+/// found in the world's own orbits from now on (`sights::find`): the clock goes to that moment and the player to a
+/// place it is seen from, looking at it. An annular eclipse of the sun by Luna is not a row: from no ground on
+/// Terra does Luna ever look smaller than Sol (sights.rs's test).
+pub(crate) const PLAYTEST: &[(&str, sights::Event)] = {
+    use sights::{Cover::*, Event::*};
+    &[
+        ("Total eclipse of the sun, from Terra", Solar { body: 0, kind: Total }),
+        ("Partial eclipse of the sun, from Terra", Solar { body: 0, kind: Partial }),
+        ("Total eclipse of Luna: wholly in Terra's shadow", Lunar { kind: Total }),
+        ("Partial eclipse of Luna: in part in the shadow", Lunar { kind: Partial }),
+        ("From Luna: Terra in front of the sun", FromMoon),
+        ("At the gas giant: its moon in front of the sun", Solar { body: GIANT, kind: Total }),
+        ("Luna new", Phase(0)),
+        ("Luna a waxing crescent", Phase(1)),
+        ("Luna at first quarter", Phase(2)),
+        ("Luna waxing gibbous", Phase(3)),
+        ("Luna full", Phase(4)),
+        ("Luna waning gibbous", Phase(5)),
+        ("Luna at last quarter", Phase(6)),
+        ("Luna a waning crescent", Phase(7)),
+    ]
+};
+
+/// Stands for the first gas body in `PLAYTEST` (the rows are made before the world is): `playtest` looks it up.
+pub(crate) const GIANT: usize = usize::MAX;
 
 /// What the look-at panel shows (draft 2026-11-24, "Felt temperature"): its target, the name and the note under it.
 #[derive(Clone, Debug, PartialEq)]
@@ -128,7 +134,7 @@ impl App {
         let key = self.aim.map(|(b, _)| (b, self.world.block(b)));
         if s.at.is_none_or(|(t, k)| k != key || t.elapsed().as_secs_f64() >= SENSE_S) {
             s.felt = Some(self.world.felt_of(p.pos, live, &s.done.map(|d| d.1).unwrap_or_default()));
-            s.looked = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).map(|l| looked(&self.world, l, live));
+            s.looked = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).filter(|_| !self.spectator).map(|l| looked(&self.world, l, live));
             s.at = Some((Instant::now(), key));
         }
     }
@@ -150,9 +156,18 @@ pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     v
 }
 
+/// How long an F10 row's tilt waits for its jump to land (`App::sight_pitch`): a later teleport is level.
+const SIGHT_S: f64 = 3.0;
+
 /// One predicted step, as the server takes it (ADR 0118): the sprint refused at the floor by the `hunger`
-/// carried, the step, then that step's drain (`drains`: survival and alive). True when it sprinted.
-pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64, creative: bool, drains: bool, inp: &Input) -> bool {
+/// carried, the step, then that step's drain (`drains`: survival and alive). True when it sprinted. A spectator
+/// (`ghost`) steps as the server steps it, through everything at the input's time (`phys::ghost_at`, draft ADR
+/// spectator-and-sky), and drains nothing.
+pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64, (creative, ghost): (bool, bool), drains: bool, inp: &Input) -> bool {
+    if ghost {
+        phys::ghost_at(world, me, inp, phys::DT);
+        return false;
+    }
     let g = engine::vitals::gate(*inp, *hunger, creative);
     let sprinted = phys::step_at(world, me, &g, phys::DT);
     if drains {
@@ -163,7 +178,7 @@ pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64
 
 /// Where the steps the server has not answered take a player from the server's last word on it (ADR 0019),
 /// and the hunger they leave (from the server's, `(hunger, creative, drains)` as `predict` takes them).
-pub(crate) fn replay(world: &mut World, server: phys::Player, (mut hunger, creative, drains): (f64, bool, bool), steps: &VecDeque<(u32, Input)>) -> (phys::Player, f64) {
+pub(crate) fn replay(world: &mut World, server: phys::Player, (mut hunger, creative, drains): (f64, (bool, bool), bool), steps: &VecDeque<(u32, Input)>) -> (phys::Player, f64) {
     let mut me = server;
     for (_, inp) in steps {
         predict(world, &mut me, &mut hunger, creative, drains, inp);
@@ -240,24 +255,14 @@ pub(crate) fn wheel_slot(slot: usize, down: bool) -> usize {
 }
 
 #[test]
-fn every_playtest_row_is_made_of_steps_the_game_knows() {
-        let mut names = std::collections::HashSet::new();
-        for (name, steps, _) in PLAYTEST {
-            assert!(names.insert(name) && !steps.is_empty(), "{name}");
-            for s in *steps {
-                let known = match s.split_once(':') {
-                    Some(("eclipse", w)) => w == "sun" || w == "luna",
-                    Some(("fly", v)) => v.parse::<f64>().is_ok_and(|v| (1.0..=phys::FLY_MAX).contains(&v)),
-                    Some(("give", w)) => w == "all",
-                    _ => ["/playmode creative", "/playmode survival", "/goto terra", "/goto luna", "/heal"].contains(s)
-                        || ["/hurt ", "/feed ", "/thirst "].iter().any(|c| s.strip_prefix(c).is_some_and(|n| n.parse::<u8>().is_ok_and(|n| n <= 20)))
-                        || s.strip_prefix("/time set ").is_some_and(|w| ["sunrise", "day", "noon", "sunset", "night", "midnight"].contains(&w))
-                        || s.strip_prefix("/give ").and_then(|r| r.rsplit_once(' ')).is_some_and(|(b, n)| BLOCKS.placeable().any(|d| d.name == b) && n.parse::<u32>().is_ok()),
-                };
-                assert!(known, "{name}: '{s}'");
-            }
-        }
+fn the_playtest_rows_are_the_sky_s_eclipses_and_every_phase() {
+    let names: std::collections::HashSet<&str> = PLAYTEST.iter().map(|r| r.0).collect();
+    assert_eq!(names.len(), PLAYTEST.len(), "every row its own name");
+    for k in 0..8 {
+        assert!(PLAYTEST.iter().any(|r| r.1 == sights::Event::Phase(k)), "phase {k}");
     }
+    assert!(PLAYTEST.iter().all(|r| !matches!(r.1, sights::Event::Solar { body: 0, kind: sights::Cover::Annular })), "no annular row");
+}
 
 /// Whether press `a` acts on the aimed thing (ADR 0144, ADR 0147): the dig button whatever is in hand
 /// (a plant is cut), the place button only on a pick-up and with the hand empty, so a place, a strike, a drink or
@@ -365,6 +370,8 @@ impl App {
     /// m:dx:dy turns the look.
     pub(crate) fn act(&mut self, a: &str) {
         match a {
+            // a spectator acts on nothing and always flies (ADR 0202): no dig, place, pick-up, use or drink, no landing
+            "L" | "R" | "fly" if self.spectator => {}
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pick-up, a drink, a pour, a strike or a place against it
             "R" if self.use_target().is_some() => self.use_block(),
@@ -665,6 +672,12 @@ impl App {
                 self.pick = Some(0);
             }
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
+            // playtest:<k>: F10's row k, as a click on it does (off-screen shots of the sky's sights)
+            a if a.starts_with("playtest:") => {
+                if let Some(k) = a[9..].parse::<usize>().ok().filter(|k| *k < PLAYTEST.len()) {
+                    self.playtest(k);
+                }
+            }
             // fly:<m/s> as the playtest menu's step: flying at that speed, for scripted flights (ADR 0073)
             a if a.starts_with("fly:") => (self.flying, self.fly_speed) = (true, a[4..].parse::<f64>().unwrap_or(250.0).clamp(1.0, phys::FLY_MAX)),
             _ => {
@@ -691,60 +704,70 @@ impl App {
         }
     }
 
-    /// F10's eclipses (bugs/2026-11-11_13-12-42): the clock to the next one the sky's functions show, the
-    /// player where it is seen best, and a line saying where to look. Luna's shadow on Terra: where its middle
-    /// meets the ground, 20 s before, so it comes over; Luna in Terra's shadow: under Luna, at that moment.
-    /// A row of the playtest menu: its steps in turn, then the line that says what to look for.
+    /// A row of the playtest menu (F10, ADR 0202): the next time from now the world's own orbits give its sight
+    /// (`sights::find`), the clock set there (a total eclipse of the sun 20 s before, so the shadow comes over), the
+    /// player stood where it is seen and turned to it, and a line saying what and when. Nothing is posed by hand.
     pub(crate) fn playtest(&mut self, k: usize) {
-        let (_, steps, look) = PLAYTEST[k];
-        for step in steps {
-            match *step {
-                "eclipse:sun" => self.eclipse(false),
-                "eclipse:luna" => self.eclipse(true),
-                s if s.starts_with("fly:") => (self.flying, self.fly_speed) = (true, s[4..].parse().unwrap_or(250.0)),
-                s => self.link.send(ToServer::Chat(s.to_string())),
-            }
+        let (name, e) = PLAYTEST[k];
+        // (the review) a dead player's click would move everyone's clock and nobody
+        if self.dead.is_some() {
+            return self.note(format!("{name}: you are dead, respawn first"));
         }
-        if !look.is_empty() {
-            self.note(look.to_string());
-        }
-    }
-
-    fn eclipse(&mut self, lunar: bool) {
-        let sky = self.world.sky;
-        let Some(t) = nav::next_eclipse(&sky, self.world.time, lunar) else {
-            self.note("no eclipse in the sky's whole cycle: Luna's orbit never lines up".into());
-            return;
+        let e = match e {
+            sights::Event::Solar { body: GIANT, kind } => match (0..self.world.bodies.len()).find(|&b| self.world.bodies[b].gas) {
+                Some(g) => sights::Event::Solar { body: g, kind },
+                None => return self.note("this world has no gas giant".into()),
+            },
+            e => e,
         };
-        let (bodies, pose) = (self.world.bodies.clone(), sky.planet(t));
-        let b = &bodies[0];
-        // the shadow's middle on the ground: on the sea-level sphere first, then again at the ground's height there
-        let on_ground = |r: f64| nav::shadow_at(&sky, t, r);
-        let x = if lunar {
-            Some(sky.moon(t).centre - pose.centre)
-        } else {
-            on_ground(b.radius).and_then(|x| on_ground(b.top(pose.rot.inverse() * x.normalize())))
+        let w = &self.world;
+        // the giant's moon may look the smaller from its cloud tops: then its eclipse is a ring
+        let found = sights::find(w, w.time, e).or_else(|| match e {
+            sights::Event::Solar { body, kind: sights::Cover::Total } if body != 0 => sights::find(w, w.time, sights::Event::Solar { body, kind: sights::Cover::Annular }),
+            _ => None,
+        });
+        let Some(s) = found else {
+            return self.note(format!("{name}: the orbits give none in the next {:.0} years", sights::YEARS));
         };
-        let Some(x) = x else {
-            self.note("the next eclipse's shadow misses Terra".into());
-            return;
-        };
-        let d = pose.rot.inverse() * x.normalize();
-        // over the ground and over the sea; a creative player hovers there
-        let feet = b.centre + d * ((b.stand_point(d) - b.centre).length().max(b.top(d) + 0.6));
-        let eye = pose.to_inertial(b.centre, feet + d * 1.7);
-        let target = if lunar { sky.moon(t).centre } else { sky.sun(t) };
-        let look = pose.rot.inverse() * (target - eye).normalize();
+        let b = &w.bodies[s.body];
+        // a spectator or a creative flyer hovers 40 m over the ground or the sea (a gas body's cloud tops), over the
+        // trees that would hide the sky; an eclipse's eye on the shadow's axis at that height (`sights::stand`)
+        let (feet, eye, share) = sights::stand(w, &s);
+        let (pose, d) = (w.pose(s.body, s.t), (feet - b.centre).normalize());
+        let look = pose.rot.inverse() * (s.look - eye).normalize();
         let (up_deg, bearing) = (look.dot(d).clamp(-1.0, 1.0).asin().to_degrees(), nav::bearing(d, look));
-        let lead = if lunar { 0.0 } else { 20.0 };
-        let what = if lunar {
-            format!("Luna in Terra's shadow ({:.0}% of Sol hidden from it)", sky.covered(t, sky.moon(t).centre, pose.centre, sky.planet_radius) * 100.0)
-        } else {
-            format!("Luna over Sol in {lead:.0} s ({:.0}% hidden here)", sky.eclipse(t, eye) * 100.0)
+        let lead = if e == (sights::Event::Solar { body: 0, kind: sights::Cover::Total }) { 20.0 } else { 0.0 };
+        let what = match e {
+            sights::Event::Phase(_) => format!("{:.0}% lit", s.share * 100.0),
+            sights::Event::Lunar { .. } => format!("{:.0} of 5 points of her disc in the umbra", s.share * 5.0),
+            _ => format!("{:.1}% of Sol hidden from the eye", share * 100.0),
         };
-        let line = format!("{what}: look {up_deg:.0} degrees up, bearing {bearing:.0}, from {}", nav::geo_text(nav::geo(d, self.meridian(0))));
-        self.link.send(ToServer::Chat(format!("/time set {:.2}", t - lead)));
+        let (day, h) = engine::sky::clock(s.t);
+        let m = (h * 60.0).round() as u32 % (24 * 60);
+        let line = format!(
+            "{name}: {what}, day {day} {:02}:{:02} at the spawn (world time {:.0} s{}); look {up_deg:.0} degrees up, bearing {bearing:.0}, from {} on {}",
+            m / 60,
+            m % 60,
+            s.t,
+            if lead > 0.0 { format!(", set {lead:.0} s before") } else { String::new() },
+            nav::geo_text(nav::geo(d, self.meridian(s.body))),
+            b.name
+        );
+        self.link.send(ToServer::Chat(format!("/time set {:.2}", s.t - lead)));
+        // a survival player watches as a spectator: hovering there, not sinking into the sea or drowning; put in it
+        // before the jump, so that leaving it lands it where it was (the server's `landing`)
+        if !self.creative && !self.spectator {
+            self.link.send(ToServer::Chat("/playmode spectator".into()));
+        }
         self.link.send(ToServer::Move { pos: feet.to_array(), fwd: look.as_vec3().to_array(), pitch: 0.0 });
+        // the server turns the body to the bearing; the head tilts up to the sight when the jump lands (a jump
+        // too short to be seen as one tilts it now); a pitch the jump never took is dropped after a few seconds
+        let pitch = up_deg.to_radians().clamp(-1.55, 1.55);
+        if s.body == self.world.frame_at(self.me.pos) && (feet - self.me.pos).length() < 2.0 {
+            self.pitch = pitch;
+        } else {
+            self.sight_pitch = Some((pitch, Instant::now()));
+        }
         self.flying |= self.creative;
         self.note(line);
     }
@@ -929,11 +952,11 @@ impl App {
                     None => engine::sky::BIOME_CLIMATE[bio as usize],
                 };
                 // the live air (W3) where the server runs it, else the baked year with the season and hour on top
-                let (c, rain) = match self.air {
-                    Some(a) => (a.temp as f64, format!(", rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))),
-                    None => (engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)), String::new()),
+                let c = match self.air {
+                    Some(a) => a.temp as f64,
+                    None => engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)),
                 };
-                format!("{c:.1} °C, the year's mean here {mean:.0} °C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
+                format!("{c:.1} °C, the year's mean here {mean:.0} °C")
             }
             None => "no air reading here".into(),
         };
@@ -1013,11 +1036,58 @@ impl App {
                 ],
             ),
             section(
+                "Ground",
+                if space || b.gas {
+                    vec![("Ground", if space { "none: in space".into() } else { "gas: no ground, no biome".into() }, 0)]
+                } else {
+                    let name = |v: Option<&str>| v.unwrap_or("none on this map").to_string();
+                    let (i, j) = (blk.pos.x, blk.pos.y);
+                    let biome = b.biome_at(face, fi, fj, b.dir(face, fi, fj)).and_then(|k| engine::biomes::ROWS.biomes.get(k as usize)).map(|r| r.name.as_str());
+                    // the rock's own heat at the feet's layer (the geotherm under the year's air, ADR 0197)
+                    let rock = b.heat(blk.face, i, j, blk.pos.z as f64 + 0.5).map_or("no map's rock here".into(), |c| format!("{c:.1} °C at layer {}, the ground's top at {:.0}", blk.pos.z, b.col_height(blk.face, i, j) - b.radius));
+                    let fluids = engine::fluids::FLUIDS.now();
+                    let wet = |p: DVec3| w.fluid_at(p).map_or("none".to_string(), |k| fluids.get(k).name.clone());
+                    let mut rows = vec![
+                        ("Biome", name(biome), 0),
+                        ("Province", name(nav::province_name(b, blk.face, i, j)), 0),
+                        ("Rock heat", rock, 0),
+                        ("Fluid", format!("{} at the feet, {} at the eye", wet(feet + up * 0.1), wet(pos)), 0),
+                        // what lies in eighths on this column (ADR 0189), as the server last sent it
+                        ("Snow", w.snow.seen.get(&World::col(blk)).map_or("none".into(), |s| format!("{} eighths of {} on layer {}", s.eighths, BLOCKS.get(s.block).map_or("?", |d| d.name.as_str()), s.z)), 0),
+                        ("Generation", format!("{} (map version {})", b.gen, b.map().map_or("none".into(), |m| m.version.to_string())), 0),
+                    ];
+                    if bi == 0 {
+                        rows.push(("Tide", format!("{:+.2} m over the mean sea", w.tide().at(up)), 0));
+                    }
+                    rows
+                },
+            ),
+            section(
+                "Sky",
+                {
+                    let mut rows = vec![("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0)];
+                    if bi == 0 && !space {
+                        let lh = nav::local_hour(w, w.time, up);
+                        let lm = (lh * 60.0).round() as u32 % (24 * 60);
+                        rows.push(("Here", format!("{:02}:{:02} local sun time, {} ({})", lm / 60, lm % 60, nav::season_name(up, w.time, w.sky.year), if up.z >= 0.0 { "north" } else { "south" }), 0));
+                    }
+                    // Luna's height over this horizon, and her phase by her elongation from Sol
+                    let moon_up = if space { None } else { Some(w.up_at(pos).dot((w.from_inertial(bi, w.sky.moon(w.time).centre) - pos).normalize()).clamp(-1.0, 1.0).asin().to_degrees()) };
+                    let e = nav::elongation(&w.sky, w.time);
+                    rows.push(("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0));
+                    rows.push((
+                        "Moon",
+                        format!("{} {}, {:.0}% lit, elongation {e:.0}{}", w.bodies.get(w.moon).map_or("none", |b| b.name.as_str()), nav::phase_name(e), d.moon_lit * 100.0, moon_up.map_or(String::new(), |a| format!(", {a:.1} degrees up"))),
+                        0,
+                    ));
+                    rows
+                },
+            ),
+            section(
                 "World",
                 vec![
-                    ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
-                    ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
                     ("Air", air, 0),
+                    ("Weather", self.air.map_or("no live air here (a remote or airless world)".into(), |a| format!("rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))), 0),
                     ("Felt", felt, 0),
                     ("Field", {
                         // the home's magnetic field, `field=` scaling it for the run, and its aurora (0164-magnetic-field)
@@ -1045,7 +1115,7 @@ impl App {
                         None => h,
                     };
                     vec![
-                        ("Mode", if self.creative { "creative" } else { "survival" }.into(), 0),
+                        ("Mode", if self.spectator { "spectator" } else if self.creative { "creative" } else { "survival" }.into(), 0),
                         ("Health", h, ht),
                         ("Hunger", f, ft),
                         ("Thirst", d, dt),
@@ -1505,7 +1575,8 @@ impl App {
         while let Ok(l) = self.bug_said.1.try_recv() {
             self.note(l);
         }
-        self.aim = edit::aim(&self.world, p.pos, p.fwd, AIM_REACH);
+        // a spectator aims at nothing: no outline, no look-at panel (it passes through blocks, ADR 0202)
+        self.aim = if self.spectator { None } else { edit::aim(&self.world, p.pos, p.fwd, AIM_REACH) };
         let t = self.world.time;
         let still = &self.gpu.as_ref().unwrap().still;
         let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t, self.world.sky.year));
@@ -1579,7 +1650,7 @@ impl App {
                     self.look_of(p, s.item, x, y, size, season);
                 }
             }) };
-        if !title && !self.creative {
+        if !title && !self.creative && !self.spectator {
             // health and hunger over the hotbar (ADR 0040): survival's, and how it is told from creative
             let mut p = hud::Paint::new(lw, lh);
             let ages = self.flash.map(|(at, from)| (at.elapsed().as_secs_f32(), from));
@@ -1633,6 +1704,20 @@ impl App {
                     None => text,
                 };
                 label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
+                // the ground's name beside it (its biome, else its kind of ground or province), looked up only when
+                // the column under the feet changes, faded in over 0.4 s when the name does
+                let blk = wd.block_at(self.me.pos);
+                let col = (blk.body as usize, blk.face, blk.pos.x, blk.pos.y);
+                if col != self.ground_label.0 {
+                    let name = if b.gas { None } else { nav::ground_name(b, blk.face, blk.pos.x, blk.pos.y) };
+                    if name != self.ground_label.1 {
+                        self.ground_label.2 = Instant::now();
+                    }
+                    (self.ground_label.0, self.ground_label.1) = (col, name);
+                }
+                if let Some(n) = self.ground_label.1 {
+                    hud::ground_tag(&mut paint, n, self.ground_label.2.elapsed().as_secs_f32() / 0.4);
+                }
             }
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
             let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };
@@ -1691,7 +1776,7 @@ impl App {
         // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
         // a bob with the steps
         if !title {
-            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || lw < 1100.0) {
+            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || self.spectator || lw < 1100.0) {
                 let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
                 let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
                 let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
@@ -1703,7 +1788,7 @@ impl App {
             }
         }
         if self.flying && !title {
-            let s = format!("Flying {:.0} m/s", self.fly_speed);
+            let s = format!("{} {:.0} m/s", if self.spectator { "Spectator, flying" } else { "Flying" }, self.fly_speed);
             // over the hotbar's right end (hud::layer: its pane ends 268 px right of the middle)
             paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
@@ -1821,7 +1906,7 @@ impl App {
         }
         self.steps.retain(|s| s.0 > step);
         // each step again at the time it was first taken (the server takes it at that time too)
-        let (me, h) = replay(&mut self.world, server, (hunger, self.creative, !self.creative && self.dead.is_none()), &self.steps);
+        let (me, h) = replay(&mut self.world, server, (hunger, (self.creative, self.spectator), !self.creative && !self.spectator && self.dead.is_none()), &self.steps);
         self.hunger = h;
         let off = self.me.pos - me.pos;
         // a word from before the server took this player's last edit moves it only when it must (`takes_answer`)
@@ -1832,8 +1917,9 @@ impl App {
         self.skipped = 0;
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the
-            // steps not answered yet only turn it
-            (self.pitch, self.tilt, self.roll) = (0.0, 0.0, 0.0);
+            // steps not answered yet only turn it (an F10 row's jump tilts up to its sight)
+            let sight = self.sight_pitch.take().filter(|(_, at)| at.elapsed().as_secs_f64() < SIGHT_S);
+            (self.pitch, self.tilt, self.roll) = (sight.map_or(0.0, |(p, _)| p), 0.0, 0.0);
         }
         self.drift_max = self.drift_max.max(off.length());
         if off.length() > 0.001 {

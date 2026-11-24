@@ -225,7 +225,7 @@ impl Server {
         edits.sort_unstable_by_key(|(b, _)| (b.body, b.face, b.pos.x, b.pos.y, b.pos.z));
         let mut players = self.absent.clone();
         for c in self.clients.iter().filter(|c| !c.player.name.is_empty()) {
-            players.insert(c.player.name.clone(), saved(c));
+            players.insert(c.player.name.clone(), saved_in(c, &self.world));
         }
         Save {
             version: save::VERSION,
