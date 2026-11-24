@@ -19,8 +19,7 @@ pub struct Solid<'a> {
 /// depth once near-ground gas (ADR 0191) is built.
 const AIR_REACH_M: f64 = 30.0;
 
-/// The air over the ground at a moment, for water's phases: the sky (its year sets ADR 0187's pace, its sun the
-/// season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
+/// The air over the ground at a moment, for water's phases: the sky (its sun the season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
 /// the baked climate's year with the season and the hour on top (`sky::temperature`).
 #[derive(Clone, Copy)]
 pub struct Air<'a> {
@@ -156,9 +155,6 @@ impl Ground for Solid<'_> {
             Some(a) => self.air_at(a, c, z),
             None => (crate::liquid::AMBIENT as f64, crate::liquid::phases::ATM),
         }
-    }
-    fn pace(&self) -> f64 {
-        self.air.as_ref().map_or(1.0, |a| crate::liquid::phases::REAL_YEAR / a.sky.year)
     }
     fn ice(&self, c: Col, z: i32) -> bool {
         let Some(f) = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).freeze.as_ref() else { return false };

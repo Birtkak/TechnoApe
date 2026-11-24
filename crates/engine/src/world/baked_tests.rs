@@ -2052,8 +2052,8 @@ fn a_pond_two_metres_down_a_pit_freezes_as_one_at_the_surface_does() {
         shaft(&mut w, c, top - deep, 2 * U);
         let mut t = 0.0f64;
         while w.water.froze.get(&crate::fluids::WATER).copied().unwrap_or(0) < U && t < 1e7 {
-            w.cool_fluids_in(600.0, |_| false, Some(&cold));
-            t += 600.0;
+            w.cool_fluids_in(60.0, |_| false, Some(&cold));
+            t += 60.0;
         }
         first.push(t);
     }
@@ -2062,7 +2062,7 @@ fn a_pond_two_metres_down_a_pit_freezes_as_one_at_the_surface_does() {
 }
 
 /// Open water down a shaft on rock over its boiling point boils dry (`phases`), every unit to `vapour`, at the rate
-/// by hand: the shaft's air at the rock's heat (radiation and convection at the real rate, a source drives it), the
+/// by hand on the world's heat (flows times `HEAT_PACE`, Lv over `LIGHT`: real / 300): the shaft's air at the rock's heat (radiation and convection), the
 /// rock under it and beside it held at its heat through half a block of rock (0.25 m^2 K/W) and half its depth of
 /// water, or half a block of it to each wall. Before 2026-11-24 the air down there was the surface's and the floor's
 /// heat died as 1 / sqrt(t): it never boiled.
@@ -2073,7 +2073,9 @@ fn open_water_down_a_shaft_on_rock_over_its_boiling_point_boils_dry_at_the_hand_
     let units = U + U / 3;
     shaft(&mut w, c, z0, units);
     let ph = crate::liquid::phases::Phases::water();
-    let k = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).heat.as_ref().unwrap().conduct as f64;
+    // (the world's: water's conductivity and the rock's 0.25 m^2 K/W at `HEAT_PACE`; `ph.h` and `ph.lv` are already)
+    let k = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).heat.as_ref().unwrap().conduct as f64 * crate::interior::HEAT_PACE;
+    let rock = 0.25 / crate::interior::HEAT_PACE;
     let d0 = units as f64 / U as f64;
     let (ta, p, tr, walls) = {
         let mut g = Solid::at(&w.bodies, &w.edits, &w.sky, w.time);
@@ -2083,10 +2085,10 @@ fn open_water_down_a_shaft_on_rock_over_its_boiling_point_boils_dry_at_the_hand_
         (ta, p, Ground::heat(&g, c, z0 as f64) as f64, walls)
     };
     let tb = ph.boils_at(p);
-    let q = |d: f64| ph.h(ta, p) * (ta - tb) + (tr - tb) / (0.25 + d * 0.5 / k) + d * (walls - 4.0 * tb) / (0.25 + 0.5 / k);
+    let q = |d: f64| ph.h(ta, p) * (ta - tb) + (tr - tb) / (rock + d * 0.5 / k) + d * (walls - 4.0 * tb) / (rock + 0.5 / k);
     let n = 10_000;
     let hand: f64 = (0..n).map(|s| U as f64 * ph.lv / q((s as f64 + 0.5) * d0 / n as f64) * d0 / n as f64).sum();
-    let (dt, mut t) = (600.0, 0.0);
+    let (dt, mut t) = (60.0, 0.0);
     while w.water.total() > 0 && t < 2.0 * hand {
         w.cool_fluids_in(dt, |_| false, None);
         t += dt;

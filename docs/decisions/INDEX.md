@@ -195,7 +195,7 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0184 | Every body with blocks gets the deep grid (generation 9) | [deep-world.md](deep-world.md) - Every body gets the deep grid | in force |
 | 0185 | A field needs a churning core; Mars's core is liquid | [bodies-and-orbits.md](bodies-and-orbits.md) - A field needs a churning core | in force |
 | 0186 | Fluids are rows of data/fluids.toml; lava, one kind a gap, no mixing | [sky-weather-and-water.md](sky-weather-and-water.md) - Fluids are rows; lava, with no mixing | in force |
-| 0187 | Weather-driven heat runs at the calendar's pace (about 52x); source heat at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Weather-driven heat runs at the calendar's pace | in force |
+| 0187 | Weather-driven heat runs at the calendar's pace (about 52x); source heat at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Weather-driven heat runs at the calendar's pace | replaced by 0200 |
 | 0188 | Volcanoes and vents, fed by the planet's heat | [bake-and-landforms.md](bake-and-landforms.md) - Volcanoes and vents, fed by the planet's heat | in force |
 | 0189 | Snow lies in thin layers that build and melt, counted water | [sky-weather-and-water.md](sky-weather-and-water.md) - Snow lies in thin layers that build and melt | in force |
 | 0190 | Ground water: a baked table, flooded caves, springs, at the calendar's pace | [sky-weather-and-water.md](sky-weather-and-water.md) - Ground water: a table, flooded caves, springs | in force |
@@ -208,3 +208,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0197 | The geotherm: rock's heat at depth is a sphere's steady conduction from the province's surface gradient (generation 11) | [rock-minerals-and-ore.md](rock-minerals-and-ore.md) - The geotherm: a sphere's steady conduction from the province's gradient | in force |
 | 0198 | Lava is drawn as a dark crust broken by glowing cracks, oil as a glossy slick with a film; water unchanged | [sky-weather-and-water.md](sky-weather-and-water.md) - Lava drawn as a cracked crust, oil as a glossy slick with a film | in force |
 | 0199 | Felt temperature (air plus lava's radiant heat by rays), degrees on the HUD, the look-at panel names fluids with heat and hardness | [player-and-feel.md](player-and-feel.md) - Felt temperature, and the look-at panel names fluids with heat and hardness | in force |
+| 0200 | Heat runs on two constants: every flow at a pace of 6, blocks and fluids store a fiftieth; lava's own cooling at half | [sky-weather-and-water.md](sky-weather-and-water.md) - Heat runs on two constants: a pace of 6 and blocks that store a fiftieth | in force |

@@ -57,6 +57,15 @@ pub struct Heat {
     /// felt temperature sees (`world::felt`); the fluid itself keeps its own heat.
     #[serde(default)]
     pub surface: f32,
+    /// How fast its own heat loss to the air and the rock runs against the world's (`interior::HEAT_PACE`), over 0:
+    /// 1 (the default) at it. A taste call per row: lava's 0.5 (the developer, 2026-11-24: "make heat loss a bit
+    /// slower", so a flow runs further before it crusts). Not on a reaction or on what it gives an ice block.
+    #[serde(default = "one")]
+    pub pace: f32,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -126,6 +135,9 @@ impl Fluids {
                 if !(h.capacity > 0.0 && h.latent > 0.0 && h.conduct > 0.0 && (0.0..=1.0).contains(&h.emissivity)) {
                     return bad("heat: capacity, latent and conduct over 0, emissivity 0..1");
                 }
+                if !(h.pace > 0.0 && h.pace.is_finite()) {
+                    return bad("heat: pace must be over 0");
+                }
                 if r.freeze.as_ref().is_some_and(|f| h.pour <= f.at) {
                     return bad("heat: poured at or under its freeze point");
                 }
@@ -193,5 +205,16 @@ mod tests {
         assert!(e.contains("'tar'") && e.contains("surface"), "{e}");
         let e = Fluids::parse(&format!("{}{}", &row("viscosity = 8")[ok.len()..], ok)).unwrap_err();
         assert!(e.contains("first fluid must be water"), "{e}");
+        let heat = "viscosity = 8\nheat = { pour = 200.0, capacity = 1.0, latent = 1.0, conduct = 1.0, emissivity = 0.5";
+        let e = Fluids::parse(&row(&format!("{heat}, pace = 0.0 }}"))).unwrap_err();
+        assert!(e.contains("'tar'") && e.contains("pace"), "{e}");
+    }
+
+    /// The heat loss's pace against the calendar's: 1 where a row gives none (water), lava's the developer's 0.5.
+    #[test]
+    fn a_rows_heat_pace_defaults_to_one_and_lavas_is_half() {
+        let f = Fluids::parse(FLUIDS_TOML).unwrap();
+        let pace = |k: u8| f.get(k).heat.as_ref().unwrap().pace;
+        assert_eq!((pace(WATER), pace(f.kind("lava").unwrap())), (1.0, 0.5));
     }
 }
