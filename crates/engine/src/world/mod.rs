@@ -28,6 +28,7 @@ mod generate;
 pub use generate::*;
 mod volcano;
 pub use volcano::{Chamber, Crater, Stage};
+mod ground;
 
 pub const BLOCK: f64 = 1.0;
 /// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it
@@ -105,7 +106,7 @@ pub const MANTLE_STEP: i32 = 256;
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
 /// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
-pub const GENERATION: u8 = GEOTHERM;
+pub const GENERATION: u8 = GROUND_WATER;
 /// The generation of real gravity (ADR 0181): every body's pull from its own mass (Luna of the Moon's
 /// make-up, `bodies::Row::makeup_at`), the periods by Kepler's law from the masses, the sun's mass from its row,
 /// tides from the masses and distances, water by its body's pull, and Terra's map baked over that year. A world of
@@ -123,6 +124,10 @@ pub const VOLCANOES: u8 = 10;
 /// conduction from the province's gradient at the top (`Body::geotherm`), not a straight line; it reads in the deep
 /// minerals' windows, the mantle's rock and generated lava, so an earlier generation keeps the line.
 pub const GEOTHERM: u8 = 11;
+/// The generation of ground water (ADR 0190): Terra's map of version 10, whose water table floods the caves under it
+/// and whose springs start streams, and the aquifer a well or a cave trades with (`liquid::Liquids::seep`). A world of
+/// an earlier generation plays on the map of version 9 and stays dry, as before.
+pub const GROUND_WATER: u8 = 12;
 
 /// The home's year in a world of generation `gen` whose home has `planet_n` columns and its moon its row's,
 /// seconds: the sky's own (built without a map), which the bake runs its climate over (`bake::Map::year`).
@@ -843,3 +848,6 @@ mod record_tests;
 
 #[cfg(test)]
 mod gravity_tests;
+
+#[cfg(test)]
+mod ground_tests;
