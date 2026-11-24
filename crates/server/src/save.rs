@@ -92,10 +92,17 @@ pub struct Save {
     /// world without snow writes the bytes it did.
     #[serde(skip)]
     pub snow: engine::snow::State,
+    /// Ground water off its rest (ADR 0190: `Liquids::ground_extra`, `Liquids::rim` and the touched cells): a seventh
+    /// tail, written (with the six before it) only when there is any, so a world without a table writes the bytes it
+    /// did; a save without it loads with the aquifer at rest.
+    #[serde(skip)]
+    pub ground: GroundTail,
 }
 
 /// `Liquids::chambers` and `Liquids::erupted`.
 pub type Chambers = (Vec<(f64, bool)>, i64);
+/// `Liquids::ground_extra`, `Liquids::rim` and `Liquids::aquifer`.
+pub type GroundTail = (i64, i64, Vec<(u64, engine::liquid::Cell)>);
 
 /// `Liquids::heats` (each node's column, floor and heat) and `Liquids::froze`.
 pub type Heat = (Vec<(engine::liquid::Col, i32, engine::liquid::Therm)>, Vec<(u8, i64)>);
@@ -106,7 +113,7 @@ impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new(), snow: Default::default() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new(), snow: Default::default(), ground: GroundTail::default() }
     }
 }
 
@@ -367,7 +374,8 @@ impl Save21 {
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
-        let snow = self.snow != engine::snow::State::default();
+        let ground = self.ground != GroundTail::default();
+        let snow = self.snow != engine::snow::State::default() || ground;
         let crust = !self.crust.is_empty() || snow;
         let chambers = self.chambers != Chambers::default() || crust;
         let kinds = !self.kinds.is_empty() || chambers;
@@ -389,6 +397,9 @@ impl Save {
         }
         if snow {
             b.extend(postcard::to_allocvec(&self.snow).expect("the snow serialises"));
+        }
+        if ground {
+            b.extend(postcard::to_allocvec(&self.ground).expect("the ground water serialises"));
         }
         b
     }
@@ -420,8 +431,16 @@ impl Save {
                                                                         Ok((c, snow)) => {
                                                                             s.crust = c;
                                                                             if !snow.is_empty() {
-                                                                                match postcard::from_bytes(snow) {
-                                                                                    Ok(v) => s.snow = v,
+                                                                                match postcard::take_from_bytes(snow) {
+                                                                                    Ok((v, aq)) => {
+                                                                                        s.snow = v;
+                                                                                        if !aq.is_empty() {
+                                                                                            match postcard::from_bytes(aq) {
+                                                                                                Ok(g) => s.ground = g,
+                                                                                                Err(e) => eprintln!("the save's ground water ({} bytes) unread, loaded at rest: {e}", aq.len()),
+                                                                                            }
+                                                                                        }
+                                                                                    }
                                                                                     Err(e) => eprintln!("the save's snow ({} bytes) unread, loaded without it: {e}", snow.len()),
                                                                                 }
                                                                             }

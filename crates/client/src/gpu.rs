@@ -1202,7 +1202,7 @@ impl Gpu {
         // the models (ADR 0047): their quads, and one transform per part drawn
         let mquads = buf("model quads", (crate::models::MAX_MQUADS * 16) as u64, U::STORAGE | U::COPY_DST);
         // the globe map (ADR 0077): filled by `App::globe_frame` once the worker's pictures are made
-        let globe_buf = buf("globe", (crate::globe::LEN * 4) as u64, U::STORAGE | U::COPY_DST);
+        let globe_buf = buf("globe", (crate::globe::layout(&engine::bodies::BODIES).1 * 4) as u64, U::STORAGE | U::COPY_DST);
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
         // the clutter's models, read once at the start (shortcut: not live as the models' are; a restart reads them)
         let palette = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| crate::fx::PALETTE.clone());

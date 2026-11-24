@@ -58,6 +58,8 @@ pub struct Params {
     pub rift_w: f64,
     /// Volcanoes on the arcs (`super::volcano`, map version 9 on); false: the bakes before them.
     pub volcanoes: bool,
+    /// The water table and the springs' streams (`super::ground`, map version 10 on); false: the bakes before it.
+    pub ground_water: bool,
 }
 
 impl Default for Params {
@@ -87,6 +89,7 @@ impl Default for Params {
             arc_w: 0.035,
             rift_w: 0.012,
             volcanoes: true,
+            ground_water: true,
         }
     }
 }

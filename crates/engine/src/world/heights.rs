@@ -7,7 +7,7 @@ impl Body {
         self.height_at(face, i, j, self.dir(face, i, j), 0)
     }
     /// The first generated air layer over a surface at radius h: `material`'s own test.
-    pub(crate) fn first_air(&self, h: f64) -> i32 {
+    pub fn first_air(&self, h: f64) -> i32 {
         let mut z = ((self.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
         while z > 0 && material(h - self.layer_r(z as f64 - 0.5), &self.ground) == AIR {
             z -= 1;
