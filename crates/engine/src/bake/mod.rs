@@ -131,6 +131,10 @@ pub struct Map {
     /// volcanoes): the rest of the ground's Darcy flow (ADR 0190). Empty on an older map: its world is dry.
     #[serde(skip)]
     pub table: Vec<f32>,
+    /// How the table's solve ended (version 10 on, written after the table): its sweeps and its residual, metres
+    /// (`ground::Aquifer::residual`). Settled when the sweeps are under `ground::SWEEPS`; a field not settled is kept.
+    #[serde(skip)]
+    pub solve: (u32, f32),
     /// FNV of the bytes it was read from or would be written as.
     #[serde(skip)]
     pub hash: u64,
@@ -172,7 +176,7 @@ impl Map {
         if self.version == VERSION || self.version == 9 || self.version == 8 { crate::world::year_of(self.n, crate::world::REAL) } else { crate::sky::YEAR }
     }
     /// The map of a bake on plates once its `life` stage has run (`run_with`).
-    fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, volcanoes: Vec<volcano::Volcano>, table: Vec<f32>, t: std::time::Instant) -> Map {
+    fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, volcanoes: Vec<volcano::Volcano>, (table, solve): (Vec<f32>, (u32, f32)), t: std::time::Instant) -> Map {
         let h = b.h.clone();
         let lakes = (0..b.g.n()).filter(|&c| b.lake(c)).map(|c| (c as u32, b.lvl[c])).collect();
         let flow = l.flow.clone();
@@ -183,7 +187,7 @@ impl Map {
         let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area, flow: flow[r.cell as usize] }).collect();
         let rock = std::mem::take(&mut b.rock);
         let version = if table.is_empty() { 9 } else { VERSION };
-        let mut map = Map { version, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lakes, climate, rock, volcanoes, table, ..Map::empty() };
+        let mut map = Map { version, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lakes, climate, rock, volcanoes, table, solve, ..Map::empty() };
         map.finish(&map.to_bytes());
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
@@ -216,7 +220,7 @@ impl Map {
             3 => postcard::to_stdvec(&(3u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, rivers(), &self.climate)),
             4 => postcard::to_stdvec(&(4u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, &self.rivers, &self.lakes, &self.climate)),
             luna::VERSION | mars::VERSION => postcard::to_stdvec(&(self, &self.tubes)),
-            VERSION => postcard::to_stdvec(&(self, &self.volcanoes, &self.table)),
+            VERSION => postcard::to_stdvec(&(self, &self.volcanoes, &self.table, self.solve)),
             9 => postcard::to_stdvec(&(self, &self.volcanoes)),
             _ => postcard::to_stdvec(self),
         }
@@ -236,7 +240,8 @@ impl Map {
             VERSION => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 let (volcanoes, rest) = postcard::take_from_bytes(rest).map_err(|e| format!("not a map's volcanoes: {e}"))?;
-                Map { volcanoes, table: postcard::from_bytes(rest).map_err(|e| format!("not a map's water table: {e}"))?, ..m }
+                let (table, solve) = postcard::from_bytes(rest).map_err(|e| format!("not a map's water table: {e}"))?;
+                Map { volcanoes, table, solve, ..m }
             }
             luna::VERSION | mars::VERSION => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
@@ -564,13 +569,13 @@ pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params, year: f64
     let (mut b, l) = (plates.expect("checked"), life.expect("checked"));
     // the water table on the rivers, lakes, rain and rock, and the streams its springs start (map version 10 on)
     let table = if p.ground_water {
-        let (table, springs) = ground::table(&b, &l, n as u32, lp.pet_per_c);
+        let (table, springs, solve) = ground::table(&b, &l, n as u32, lp.pet_per_c);
         let streams = ground::streams(&b, &springs);
         b.rivers.extend(streams);
         lap("ground water");
-        table
+        (table, solve)
     } else {
-        Vec::new()
+        (Vec::new(), (0, 0.0))
     };
     Map::of_life(seed, n, b, l, volcanoes, table, t)
 }

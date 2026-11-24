@@ -4824,6 +4824,36 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
     }
 }
 
+/// A world of generation 11 has no ground water (ADR 0190): the hole the test above digs under generation 12's table
+/// on the same seed and planet, watered and left a minute, touches no aquifer, so its save carries no seventh tail
+/// (its bytes end where they did) and its hash takes in none. (The old saves' bytes and hashes to the bit:
+/// `a_version_21_save_and_recordings_load_as_terra_and_luna`, `a_generation_4_save_keeps_two_bodies_...`.)
+#[test]
+fn a_generation_11_worlds_save_and_hash_hold_no_ground_water() {
+    let mut s = Server::baked_warp(1536, 32, 7, 0.0, engine::world::GEOTHERM, channel().1);
+    let b = s.world.bodies[0].clone();
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let z0 = b.layer_of(b.col_height(f, i, j)).floor() as i32 - 3;
+    for z in 0..3 {
+        s.world.set_block(Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z0 + z) }, AIR);
+    }
+    let col = engine::liquid::Col::new(0, f, i, j);
+    {
+        let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+        let g = engine::world::Solid::at(bodies, edits, sky, *time);
+        assert!(water.pour(&g, col, z0, U / 2));
+    }
+    for _ in 0..60 {
+        s.world.cool_fluids(1.0, |_| false);
+    }
+    let w = &s.world.water;
+    assert!(w.aquifer.is_empty() && (w.ground_extra, w.rim) == (0, 0), "no aquifer touched");
+    let snap = s.snapshot();
+    assert!(snap.ground == save::GroundTail::default(), "no seventh tail");
+    let back = Server::from_save(Save::from_bytes(&snap.to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.hash(), s.hash(), "the save's world hashes as it did");
+}
 
 /// Ice blocks of the edits are followed again on load (water's phases): saved and restored twice, each is followed
 /// once, the list grows by nothing, and water's ledger is exact.

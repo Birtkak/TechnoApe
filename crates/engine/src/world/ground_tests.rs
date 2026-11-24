@@ -240,17 +240,32 @@ fn a_generation_11_world_has_no_ground_water() {
     }
 }
 
-/// Two bakes of one seed give one table, and two worlds on them the same cave water.
+/// The table's solve settles under its cap on the planets these tests bake, and the map says so (ADR 0190: a field
+/// not settled is kept, so a bake that stops settling shows here and in `report=1`, not in a panic).
+#[test]
+fn the_tables_solve_settles_on_the_planets_the_tests_bake() {
+    for (n, m) in [(1536, MAP.clone()), (768, crate::bake::shared(5, 768))] {
+        let (sweeps, residual) = m.solve;
+        println!("planet {n}: {sweeps} sweeps, residual {residual:.1e} m");
+        assert!(sweeps > 0 && (sweeps as usize) < crate::bake::ground::SWEEPS && (residual as f64) < crate::bake::ground::TOL, "planet {n}: {sweeps} sweeps, residual {residual} m");
+        assert_eq!(crate::bake::Map::from_bytes(&m.to_bytes()).unwrap().solve, m.solve, "kept in the map's bytes");
+    }
+}
+
+/// Two bakes of one seed give one table; and two worlds, one on a map and one on its bytes read back (a client's
+/// copy), the same cave water. (The 768 planet of seed 5 floods no cave column, so the caves are the 1536's.)
 #[test]
 fn two_worlds_of_one_seed_agree() {
     let (a, b) = (Arc::new(crate::bake::Map::bake(5, 768)), crate::bake::shared(5, 768));
     assert_eq!((a.hash, a.version), (b.hash, crate::bake::VERSION));
     assert!(a.table == b.table && !a.table.is_empty());
-    let [wa, wb] = [a, b].map(|m| World::with_grid(768, 32, 5, Some(m), None, 0.0, GROUND_WATER));
+    let copy = Arc::new(crate::bake::Map::from_bytes(&MAP.to_bytes()).unwrap());
+    assert_eq!((copy.hash, &copy.table), (MAP.hash, &MAP.table));
+    let [wa, wb] = [MAP.clone(), copy].map(|m| World::with_grid(1536, 32, 5, Some(m), None, 0.0, GROUND_WATER));
     let (ga, gb) = (wa.ground(), wb.ground());
     let mut wet = 0;
     for f in 0..6u8 {
-        for (c, runs, _, _) in columns(&wa, f, 2) {
+        for (c, runs, _, _) in columns(&wa, f, 3) {
             if !runs.is_empty() {
                 let x = ga.generated_other(c);
                 wet += !x.is_empty() as usize;
@@ -259,4 +274,5 @@ fn two_worlds_of_one_seed_agree() {
         }
     }
     println!("{wet} cave columns with water, the same in both");
+    assert!(wet > 0, "no flooded cave column to compare");
 }

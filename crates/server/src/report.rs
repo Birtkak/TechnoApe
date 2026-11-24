@@ -275,7 +275,8 @@ fn limestone(b: &engine::world::Body) -> String {
 /// land's cells that hold an aquifer, by province, and in the wettest and the driest quarter of land by rain), the
 /// share of land on tight rock (no table), the cells where it meets the ground (springs) and the rivers that start at
 /// one (their streams), the share of the caves (balls by their middle; columns that hold a cave, every 4th each way)
-/// under the table (flooded), and its depth under the spawn.
+/// under the table (flooded), its depth under the spawn, and how the bake's solve ended (its sweeps, its residual,
+/// and whether it settled under the cap: a field not settled is kept, and shows here).
 fn ground_water(b: &engine::world::Body) -> String {
     use engine::bake::ground::DRY;
     let Some(map) = b.map().filter(|m| !m.table.is_empty()) else { return "null".into() };
@@ -347,12 +348,15 @@ fn ground_water(b: &engine::world::Body) -> String {
     ring.sort_unstable_by(f64::total_cmp);
     let (ring_min, ring_mid) = (ring.first().copied().unwrap_or(f64::NAN), ring.get(ring.len() / 2).copied().unwrap_or(f64::NAN));
     format!(
-        "{{\"table_depth_m\": {{{}}}, \"wettest_quarter\": {{\"rain_mm_a_day\": {wet_rain:.2}, \"table_depth_m\": {wet:.1}}}, \"driest_quarter\": {{\"rain_mm_a_day\": {dry_rain:.2}, \"table_depth_m\": {dry:.1}}}, \"tight_land\": {:.3}, \"springs\": {springs}, \"spring_streams\": {streams}, \"caves_flooded\": {{\"balls\": {:.3}, \"columns\": {:.3}, \"cave_columns\": {cave_cols}, \"columns_cave_under_table\": {under_cols}}}, \"under_the_spawn_m\": {spawn:.1}, \"round_the_spawn_30m\": {{\"shallowest_m\": {ring_min:.1}, \"median_m\": {ring_mid:.1}, \"columns\": {}}}}}",
+        "{{\"table_depth_m\": {{{}}}, \"wettest_quarter\": {{\"rain_mm_a_day\": {wet_rain:.2}, \"table_depth_m\": {wet:.1}}}, \"driest_quarter\": {{\"rain_mm_a_day\": {dry_rain:.2}, \"table_depth_m\": {dry:.1}}}, \"tight_land\": {:.3}, \"springs\": {springs}, \"spring_streams\": {streams}, \"caves_flooded\": {{\"balls\": {:.3}, \"columns\": {:.3}, \"cave_columns\": {cave_cols}, \"columns_cave_under_table\": {under_cols}}}, \"under_the_spawn_m\": {spawn:.1}, \"round_the_spawn_30m\": {{\"shallowest_m\": {ring_min:.1}, \"median_m\": {ring_mid:.1}, \"columns\": {}}}, \"solve\": {{\"sweeps\": {}, \"residual_m\": {:.1e}, \"settled\": {}}}}}",
         provinces.join(", "),
         tight as f64 / land.max(1) as f64,
         flooded as f64 / b.caves.len().max(1) as f64,
         wet_cols as f64 / cave_cols.max(1) as f64,
         ring.len(),
+        map.solve.0,
+        map.solve.1,
+        (map.solve.0 as usize) < engine::bake::ground::SWEEPS,
     )
 }
 

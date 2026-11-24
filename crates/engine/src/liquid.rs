@@ -760,7 +760,10 @@ impl Liquids {
                 let ho = o.rest + if touched { self.aquifer[&nk].dev as f64 / o.store() } else { 0.0 };
                 let kh = if me.k > 0.0 && o.k > 0.0 { 2.0 * me.k * o.k / (me.k + o.k) } else { 0.0 };
                 let bm = 0.5 * ((hm - me.base).max(0.0) + (ho - o.base).max(0.0));
-                let q = (kh * bm * (ho - hm) * dt * pace * um) as i64;
+                // never past equal heads (a fast rock's K moves more in a step than levels the pair): an untouched
+                // neighbour holds its rest, a touched one gives what it takes
+                let level = ((ho - hm) / (1.0 / me.store() + if touched { 1.0 / o.store() } else { 0.0 })) as i64;
+                let q = ((kh * bm * (ho - hm) * dt * pace * um) as i64).clamp(level.min(0), level.max(0));
                 self.aquifer.get_mut(&key).expect("listed").dev += q;
                 if touched {
                     self.aquifer.get_mut(&nk).expect("listed").dev -= q;
@@ -4039,5 +4042,60 @@ mod tests {
         }
         let ms = t.elapsed().as_secs_f64() * 1000.0 / n as f64;
         println!("{{\"liquid_step_ms\":{ms:.3},\"stored\":{},\"awake\":{}}}", w.stored(), w.awake());
+    }
+
+    /// An aquifer of five map cells, a cross round cell 0, for `seep` alone (ADR 0190): sandstone-like yield, a fast
+    /// rock's K, 50 m thick, at the calendar's pace of 52.
+    struct Cross {
+        k: f64,
+    }
+    impl Ground for Cross {
+        fn gaps(&self, _c: Col) -> Vec<(i32, i32)> {
+            vec![(0, OPEN)]
+        }
+        fn generated(&self, _c: Col) -> (i64, i64) {
+            (0, 0)
+        }
+        fn neighbours(&self, _c: Col) -> [Option<Col>; 4] {
+            [None; 4]
+        }
+        fn ground_water(&self) -> bool {
+            true
+        }
+        fn calendar(&self) -> f64 {
+            52.0
+        }
+        fn aquifer_cell(&self, cell: u64) -> Option<Aq> {
+            let nb = if cell == 0 { [1, 2, 3, 4] } else { [0, 99, 99, 99] };
+            (cell <= 4).then_some(Aq { cell, nb, rest: 50.0, table: 50.0, base: 0.0, k: self.k, sy: 0.2, dx: 8.0 })
+        }
+    }
+
+    /// A touched cell a metre over its rest goes back to it and never past: with the fastest K `rocks.toml` allows
+    /// (1e-2 m/s) a second's Darcy between cells moves more than levels them, so unbounded it swings and grows; bounded
+    /// by what levels each pair it settles, the ledger exact every second.
+    #[test]
+    fn a_touched_cell_levels_with_its_neighbours_and_never_swings_past_them() {
+        for k in [1e-5, 1e-2] {
+            let g = Cross { k };
+            let mut w = Liquids::default();
+            let store = g.aquifer_cell(0).unwrap().store();
+            let up = store as i64;
+            w.aquifer.insert(0, Cell { dev: up, ..Cell::default() });
+            w.rim = up;
+            let mut last = up;
+            for s in 0..200 {
+                w.seep(&g, 1.0);
+                assert_eq!(w.ground_ledger(), 0, "K {k}: the ledger at {s} s");
+                let dev = w.aquifer.get(&0).map_or(0, |c| c.dev);
+                for nk in 1..=4 {
+                    let other = w.aquifer.get(&nk).map_or(0, |c| c.dev);
+                    assert!(other >= 0 && other <= up, "K {k}: cell {nk} at {other} after {s} s");
+                }
+                assert!(dev >= 0 && dev <= last, "K {k}: {dev} after {last} at {s} s, a metre is {up}");
+                last = dev;
+            }
+            println!("K {k}: cell 0 at {:.4} m over its rest after 200 s, {} cells touched", last as f64 / store, w.aquifer.len());
+        }
     }
 }

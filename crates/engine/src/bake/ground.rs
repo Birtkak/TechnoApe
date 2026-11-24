@@ -170,8 +170,8 @@ pub const EDGE: usize = 160;
 /// degree. Solved on `EDGE` cells a face edge: each the mean of the map cells it covers (ground, the floor and K of
 /// those with an aquifer, their recharge), held at the lowest drain among them (sea, lake, river); read back at each
 /// map cell's middle bilinearly, under its own ground. A solve cell's spring goes to the lowest map cell under it
-/// where the table so read meets the ground.
-pub fn table(b: &super::land::Bake, l: &super::life::Life, n: u32, pet_per_c: f32) -> (Vec<f32>, Vec<f64>) {
+/// where the table so read meets the ground (`outlet`). Last, how the solve ended: its sweeps and residual (`Map::solve`).
+pub fn table(b: &super::land::Bake, l: &super::life::Life, n: u32, pet_per_c: f32) -> (Vec<f32>, Vec<f64>, (u32, f32)) {
     let t = std::time::Instant::now();
     let (g, rocks) = (&b.g, &*crate::rock::ROCKS);
     let (m, cells, e) = (g.m, g.n(), EDGE);
@@ -221,12 +221,6 @@ pub fn table(b: &super::land::Bake, l: &super::life::Life, n: u32, pet_per_c: f3
     }
     let (h, sweeps) = a.solve(1.9, TOL, SWEEPS);
     let solved = a.springs(&h);
-    // back on the map's cells: bilinear between the four solve cells round its middle (clamped to the face), the
-    // nearest one's where one of them is dry
-    let wet = |f: usize, x: i64, y: i64| {
-        let c = (f * e + y.clamp(0, e as i64 - 1) as usize) * e + x.clamp(0, e as i64 - 1) as usize;
-        (a.k[c] > 0.0).then_some(h[c])
-    };
     let table: Vec<f32> = (0..cells)
         .map(|c| {
             if aq[c].is_none() {
@@ -235,34 +229,40 @@ pub fn table(b: &super::land::Bake, l: &super::life::Life, n: u32, pet_per_c: f3
             if !drain[c].is_nan() {
                 return drain[c] as f32;
             }
-            let (f, i, j) = (c / (m * m), c % m, (c / m) % m);
-            let (u, v) = ((i as f64 + 0.5) * e as f64 / m as f64 - 0.5, (j as f64 + 0.5) * e as f64 / m as f64 - 0.5);
-            let (x0, y0) = (u.floor() as i64, v.floor() as i64);
-            let (fx, fy) = (u - x0 as f64, v - y0 as f64);
-            let hs = match [wet(f, x0, y0), wet(f, x0 + 1, y0), wet(f, x0, y0 + 1), wet(f, x0 + 1, y0 + 1)] {
-                [Some(a0), Some(a1), Some(a2), Some(a3)] => (a0 * (1.0 - fx) + a1 * fx) * (1.0 - fy) + (a2 * (1.0 - fx) + a3 * fx) * fy,
-                _ => match wet(f, (u + 0.5).floor() as i64, (v + 0.5).floor() as i64) {
-                    Some(t) => t,
-                    None => return DRY,
-                },
-            };
-            hs.min(b.h[c] as f64) as f32
+            read_back(e, m, c, |s| (a.k[s] > 0.0).then_some(h[s])).map_or(DRY, |hs| hs.min(b.h[c] as f64) as f32)
         })
         .collect();
     let mut springs = vec![0.0; cells];
     for c in 0..k {
         if solved[c] > 0.0 {
-            let seep = under(c).filter(|&i| drain[i].is_nan() && table[i] != DRY && table[i] >= b.h[i] - 1e-3).min_by(|&x, &y| b.h[x].total_cmp(&b.h[y]).then(x.cmp(&y)));
-            if let Some(i) = seep {
+            // (a free solve cell has no drain under it: a drain holds its head)
+            if let Some(i) = outlet(under(c), &b.h, &table) {
                 springs[i] += solved[c];
             }
         }
     }
-    eprintln!("[bake] ground water: {sweeps} sweeps on {e} cells a face edge, residual {:.1e} m, {} seeping cells: {:.1} s", a.residual(&h), solved.iter().filter(|&&s| s > 0.0).count(), t.elapsed().as_secs_f64());
-    if let Ok(p) = std::env::var("GW_DUMP") {
-        std::fs::write(p, table.iter().flat_map(|x| (*x as f64).to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let residual = a.residual(&h);
+    eprintln!("[bake] ground water: {sweeps} sweeps on {e} cells a face edge, residual {residual:.1e} m, {} seeping cells: {:.1} s", solved.iter().filter(|&&s| s > 0.0).count(), t.elapsed().as_secs_f64());
+    (table, springs, (sweeps as u32, residual as f32))
+}
+
+/// The table at map cell `c` of a grid of `m` cells a face edge, from the solve's on `e` cells an edge (`head`: a solve
+/// cell's head, None where it holds no aquifer): bilinear between the four solve cells round the map cell's middle,
+/// the nearest one's where one of them is dry; None where that one is dry too. Past a face's edge it takes the
+/// neighbouring face's cell, as the solve links them (`fold`; at a corner, the cell `fold` gives).
+fn read_back(e: usize, m: usize, c: usize, head: impl Fn(usize) -> Option<f64>) -> Option<f64> {
+    let cell = |f: usize, x: i64, y: i64| {
+        let (f, x, y) = crate::world::fold(f, x as i32, y as i32, e as i32);
+        head((f * e + y as usize) * e + x as usize)
+    };
+    let (f, i, j) = (c / (m * m), c % m, (c / m) % m);
+    let (u, v) = ((i as f64 + 0.5) * e as f64 / m as f64 - 0.5, (j as f64 + 0.5) * e as f64 / m as f64 - 0.5);
+    let (x0, y0) = (u.floor() as i64, v.floor() as i64);
+    let (fx, fy) = (u - x0 as f64, v - y0 as f64);
+    match [cell(f, x0, y0), cell(f, x0 + 1, y0), cell(f, x0, y0 + 1), cell(f, x0 + 1, y0 + 1)] {
+        [Some(a0), Some(a1), Some(a2), Some(a3)] => Some((a0 * (1.0 - fx) + a1 * fx) * (1.0 - fy) + (a2 * (1.0 - fx) + a3 * fx) * fy),
+        _ => cell(f, (u + 0.5).floor() as i64, (v + 0.5).floor() as i64),
     }
-    (table, springs)
 }
 
 /// Each cell's four neighbours on a grid of `m` cells a face edge, folded over the seams.
@@ -283,33 +283,79 @@ fn links(m: usize) -> Vec<[u32; 4]> {
 /// down the drainage (`recv`) until a river, a lake, the sea or a stream already laid; downstream first, as the
 /// bake's rivers are, to go after them.
 pub fn streams(b: &super::land::Bake, springs: &[f64]) -> Vec<super::land::River> {
-    let mut wet = vec![false; b.h.len()];
-    for r in &b.rivers {
-        wet[r.cell as usize] = true;
+    lay(springs, &b.recv, |c| b.ocean[c] || b.lake(c), b.rivers.iter().map(|r| r.cell))
+        .into_iter()
+        .map(|k| super::land::River { cell: k, to: b.recv[k as usize], area: b.area[k as usize] })
+        .collect()
+}
+
+/// `streams`' cells in the order laid, on the drainage `recv` where `end` holds (the sea, a lake) and `rivers` run.
+fn lay(springs: &[f64], recv: &[u32], end: impl Fn(usize) -> bool, rivers: impl Iterator<Item = u32>) -> Vec<u32> {
+    let mut wet = vec![false; recv.len()];
+    for r in rivers {
+        wet[r as usize] = true;
     }
     let mut out = Vec::new();
     for c in 0..springs.len() {
-        if springs[c] < STREAM || wet[c] || b.ocean[c] || b.lake(c) {
+        if springs[c] < STREAM || wet[c] || end(c) {
             continue;
         }
         let mut chain = Vec::new();
         let mut at = c as u32;
-        while at != NONE && !wet[at as usize] && !b.ocean[at as usize] && !b.lake(at as usize) {
+        while at != NONE && !wet[at as usize] && !end(at as usize) {
             wet[at as usize] = true;
             chain.push(at);
-            at = b.recv[at as usize];
+            at = recv[at as usize];
         }
-        // a chain that runs off the drainage (no receiver) ends at its last cell's: it is not laid
+        // a chain that runs off the drainage (no receiver) ends at its last cell's: it is not laid, nor kept as wet
+        // (a later stream reaching it would end on dry land)
         if at == NONE {
+            for &k in &chain {
+                wet[k as usize] = false;
+            }
             continue;
         }
-        out.extend(chain.iter().rev().map(|&k| super::land::River { cell: k, to: b.recv[k as usize], area: b.area[k as usize] }));
+        out.extend(chain.iter().rev());
     }
     out
 }
 
+/// The map cell a seeping solve cell's spring goes to, among the map cells `under` it: the lowest where the table
+/// meets the ground, else the lowest with an aquifer (the solve's cell meets its mean ground where none of its own
+/// does: its flow is still the recharge uphill, and goes where the table stands highest against the ground).
+fn outlet(under: impl Iterator<Item = usize> + Clone, h: &[f32], table: &[f32]) -> Option<usize> {
+    let low = |it: &mut dyn Iterator<Item = usize>| it.min_by(|&x, &y| h[x].total_cmp(&h[y]).then(x.cmp(&y)));
+    low(&mut under.clone().filter(|&i| table[i] != DRY && table[i] >= h[i] - 1e-3)).or_else(|| low(&mut under.filter(|&i| table[i] != DRY)))
+}
+
 #[cfg(test)]
 mod tests {
+    /// The table read back onto the map's cells runs on smoothly over the cube's twelve edges (the solve links its
+    /// cells across them): on a smooth field (a tilted plane through the sphere, given at the solve cells' middles), no
+    /// step between two map cells either side of an edge is over 1.5 times the largest between two inside a face.
+    #[test]
+    fn the_table_read_onto_the_map_runs_on_across_the_cube_edges() {
+        let (e, m) = (16usize, 64usize);
+        let at = |n: usize, c: usize| {
+            let (f, i, j, nn) = (c / (n * n), (c % n) as i32, ((c / n) % n) as i32, n as i32);
+            let [a, s, t] = crate::world::AX[f];
+            (a * nn + s * (2 * i + 1 - nn) + t * (2 * j + 1 - nn)).as_dvec3().normalize()
+        };
+        let field = |p: glam::DVec3| 100.0 * (p.x + 2.0 * p.y + 3.0 * p.z);
+        let v: Vec<f64> = (0..6 * m * m).map(|c| super::read_back(e, m, c, |s| Some(field(at(e, s)))).unwrap()).collect();
+        let (mut inside, mut edge) = (0.0f64, 0.0f64);
+        for c in 0..6 * m * m {
+            let (f, i, j) = (c / (m * m), (c % m) as i32, ((c / m) % m) as i32);
+            for (x, y) in [(i + 1, j), (i, j + 1), (i - 1, j), (i, j - 1)] {
+                let (g, x, y) = crate::world::fold(f, x, y, m as i32);
+                let step = (v[c] - v[(g * m + y as usize) * m + x as usize]).abs();
+                if g == f { inside = inside.max(step) } else { edge = edge.max(step) }
+            }
+        }
+        println!("the largest step between map cells: {inside:.3} inside a face, {edge:.3} over an edge");
+        assert!(edge <= 1.5 * inside, "a step over the edge {edge:.3} against {inside:.3} inside");
+    }
+
     use super::*;
 
     /// A strip of `n` cells `dx` wide between two streams at its ends whose surface stands `b0` over a flat floor at
@@ -394,5 +440,25 @@ mod tests {
         println!("spring {:.6e} m3/s against {rain:.6e} rained in; seeping {:?}", s[n - 1], (0..n).filter(|&i| s[i] > 0.0).collect::<Vec<_>>());
         assert!((s.iter().sum::<f64>() / rain - 1.0).abs() < 1e-6);
         assert!(s[..n - 3].iter().all(|&s| s == 0.0) && s[n - 1] > 0.0, "the spring at the foot of the slope only");
+    }
+
+    /// A stream that runs off the drainage is not laid and leaves no wet cells behind: a later spring's stream down
+    /// onto its cells is not laid either (it would end on dry land), while one down to the sea is.
+    #[test]
+    fn a_stream_off_the_drainage_leaves_nothing_for_a_later_one_to_end_on() {
+        // 0 -> 1 -> off; 2 -> 1; 3 -> 4 -> 5, the sea
+        let recv = [1, NONE, 1, 4, 5, NONE];
+        let springs = [STREAM, 0.0, STREAM, STREAM, 0.0, 0.0];
+        assert_eq!(lay(&springs, &recv, |c| c == 5, std::iter::empty()), vec![4, 3]);
+    }
+
+    /// A seeping solve cell whose map cells all stand over the table read back still gives its spring to one: the
+    /// lowest with an aquifer; one that meets the ground goes first, and a cell on tight rock never gets it.
+    #[test]
+    fn a_spring_with_no_map_cell_at_the_ground_still_goes_to_one() {
+        let (h, table) = ([5.0, 3.0, 2.0, 4.0], [4.0, 2.5, DRY, 4.0]);
+        assert_eq!(outlet(0..4, &h, &table), Some(3), "the one that meets the ground");
+        assert_eq!(outlet(0..3, &h, &table), Some(1), "none meets it: the lowest with an aquifer, not the tight one");
+        assert_eq!(outlet(2..3, &h, &table), None);
     }
 }
