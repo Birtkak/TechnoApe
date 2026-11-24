@@ -201,6 +201,42 @@ mod tests {
         assert!(worst[3] < 0.005 && worst[2] > 0.005, "columns off after 0..5 Newton steps: {worst:?}");
     }
 
+    /// The grid follows from the world's generation: from CONFORMAL every body's is warped, before it none.
+    #[test]
+    fn the_generation_chooses_the_grid() {
+        use crate::world::{World, CONFORMAL, GENERATION};
+        assert!(GENERATION >= CONFORMAL);
+        for (gen, warp) in [(CONFORMAL - 1, 0.0), (CONFORMAL, 1.0)] {
+            let w = World::with_grid(6144, crate::bodies::moon_columns(6144), 1, None, None, 0.0, gen);
+            for b in w.bodies.iter() {
+                assert_eq!(b.warp, warp, "generation {gen}: body {} has warp {}", b.name, b.warp);
+            }
+        }
+    }
+
+    /// On a generation-13 world every body's block tops are square at a face's middle, the middle of a face edge
+    /// and a fifth of the way in from it (where the old grid has 1.09 x 0.77 and 1.09 x 0.96 m), the 4 km and
+    /// 8 km worlds (Terra 6144 and 12288, Luna 3328 on the 8 km one, Mars, the icy moon).
+    #[test]
+    fn generation_13_block_tops_are_square() {
+        use crate::world::{World, CONFORMAL};
+        let mut sizes = Vec::new();
+        for planet in [6144, 12288] {
+            let w = World::with_grid(planet, crate::bodies::moon_columns(planet), 1, None, None, 0.0, CONFORMAL);
+            for b in w.bodies.iter().filter(|b| !b.gas) {
+                let n = b.n as f64;
+                sizes.push(b.n);
+                for f in 0..6 {
+                    for (i, j) in [(n / 2.0, n / 2.0), (n - 1.0, n / 2.0), (0.0, n / 2.0), (n * 0.8, n / 2.0), (n / 2.0, n * 0.2)] {
+                        let (u, v, ang) = block(b, f, i, j);
+                        assert!((u / v - 1.0).abs() < 0.02 && (ang - 90.0).abs() < 1.0, "{} (n {}) face {f} ({i}, {j}): {u:.3} x {v:.3} m at {ang:.2} degrees", b.name, b.n);
+                    }
+                }
+            }
+        }
+        assert!(sizes.contains(&3328) && sizes.contains(&12288), "{sizes:?}");
+    }
+
     /// The table's derivatives are the bilinear's own, and `unwarp` inverts `warp` (to 1e-12 of a face).
     #[test]
     fn the_table_inverts() {

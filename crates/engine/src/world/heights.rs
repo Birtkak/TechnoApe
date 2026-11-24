@@ -256,6 +256,13 @@ impl Body {
         let (i, j) = self.warp_col(i, j);
         self.dir_tan(face, self.col_tan(i), self.col_tan(j))
     }
+    /// How wide a column is at grid point (i, j) of a face, in metres at the body's radius (the mean of its two
+    /// ways). On the old grid 1.09 at a face's middle and less toward its edges; on the conformal one square, and
+    /// small near the 8 corners: what is sized in metres (a crater, a cave's reach sideways) asks it there.
+    pub fn col_m(&self, face: usize, i: f64, j: f64) -> f64 {
+        let w = |di: f64, dj: f64| (self.dir(face, i + di, j + dj) - self.dir(face, i - di, j - dj)).length() * self.radius;
+        0.5 * (w(0.5, 0.0) + w(0.0, 0.5))
+    }
     /// `dir` from its two tangents: a tile computes them once per row and column, to the same bits.
     fn dir_tan(&self, face: usize, ta: f64, tb: f64) -> DVec3 {
         let [n, s, t] = AX[face];

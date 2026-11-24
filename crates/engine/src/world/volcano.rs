@@ -64,7 +64,10 @@ impl Body {
                 let (i0, j0) = (ci.floor() as i32, cj.floor() as i32);
                 let floor = self.col_height(face, i0, j0);
                 let heat = if v.alive { hot } else { 0.0 };
-                let rc = v.crater as f64;
+                // the map dug the crater in metres: on the warped grid its rim and lake are counted in the columns
+                // of its place (near a corner the rim's ring fell inside the bowl and the lake was gone); the old
+                // grid's as they were, to the bit
+                let rc = if self.warp == 0.0 { v.crater as f64 } else { v.crater as f64 / self.col_m(f, ci, cj) };
                 let reach = rc.ceil() as i32 + 3;
                 let (mut rim, mut low) = (f64::INFINITY, (i0, j0));
                 for (i, j) in (i0 - reach..=i0 + reach).flat_map(|i| (j0 - reach..=j0 + reach).map(move |j| (i, j))) {

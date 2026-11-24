@@ -174,18 +174,44 @@ pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
     // a cell [k, k + 1) overlaps the open interval (lo, hi) when k < hi and k + 1 > lo
     let span = |lo: f64, hi: f64| (lo.floor() as i32)..(hi.ceil() as i32);
     let (is, js, ls) = (span(g.x - hi, g.x + hi), span(g.y - hj, g.y + hj), span(g.z, g.z + ht));
+    // On the warped grid the columns over a seam are not this face's lattice carried on (near a corner one is
+    // narrower than half of those, so a sample a cell met the second column, not the first): the part of the box
+    // past the edge is met point by point, every 0.2 m, which no column is narrower than.
+    let warped = b.warp != 0.0;
+    let mut over: Vec<Block> = Vec::new();
+    if warped && (is.start < 0 || js.start < 0 || is.end > b.n || js.end > b.n) {
+        let (d0, r0) = (b.dir(face, g.x, g.y), b.layer_r(g.z));
+        let along = |di: f64, dj: f64| (b.dir(face, g.x + di, g.y + dj) - b.dir(face, g.x - di, g.y - dj)).normalize();
+        let (ti, tj) = (along(0.5, 0.0), along(0.0, 0.5));
+        const AT: [f64; 4] = [-0.999, -1.0 / 3.0, 1.0 / 3.0, 0.999];
+        // (a column's layers one after another, as `blocked` reads the ground once a column)
+        for a in AT {
+            for c in AT {
+                let d = (d0 + (ti * a + tj * c) * (WIDTH * 0.5 / r0)).normalize();
+                for l in ls.clone() {
+                    let m = world.block_at(b.centre + d * b.layer_r(l as f64 + 0.5));
+                    if m.face as usize != face && !over.contains(&m) {
+                        over.push(m);
+                    }
+                }
+            }
+        }
+    }
     is.flat_map(move |i| {
         let ls = ls.clone();
         js.clone().flat_map(move |j| {
-            ls.clone().map(move |l| {
+            ls.clone().filter_map(move |l| {
                 if (0..b.n).contains(&i) && (0..b.n).contains(&j) {
-                    Block { body: bi as u8, face: face as u8, pos: glam::IVec3::new(i, j, l) }
+                    Some(Block { body: bi as u8, face: face as u8, pos: glam::IVec3::new(i, j, l) })
+                } else if warped {
+                    None
                 } else {
-                    world.block_at(b.centre + b.dir(face, i as f64 + 0.5, j as f64 + 0.5) * b.layer_r(l as f64 + 0.5))
+                    Some(world.block_at(b.centre + b.dir(face, i as f64 + 0.5, j as f64 + 0.5) * b.layer_r(l as f64 + 0.5)))
                 }
             })
         })
     })
+    .chain(over)
 }
 
 /// True when the player's box with its feet at `pos` overlaps a solid block.
@@ -603,6 +629,34 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// On the conformal grid a column near a cube corner is narrower than half a column of the old grid, and the
+    /// box's cells past a face edge were one sample a cell of the face's own lattice carried on past the edge:
+    /// half an old column out, which is the second column over there, so a wall in the first was walked into
+    /// (the review of generation 13).
+    #[test]
+    fn a_wall_one_column_past_a_seam_near_a_corner_blocks() {
+        let mut w = World::with_maps_warp(768, 64, 5, None, None, 1.0);
+        let b = w.bodies[0].clone();
+        let face = 0;
+        // a column at the face's edge whose box reaches over the seam, where the column just over it is not the
+        // one the old sample met
+        let found = (2..80).find_map(|j| {
+            let jf = j as f64 + 0.5;
+            let (d_in, d_adj, d_old) = (b.dir(face, 0.5, jf), b.dir(face, -0.02, jf), b.dir(face, -0.5, jf));
+            let r = [d_in, d_adj, d_old].map(|d| b.height(d)).into_iter().fold(0.0, f64::max) + 20.0;
+            let wide = (b.dir(face, 1.0, jf) - b.dir(face, 0.0, jf)).length() * r;
+            let (near, old) = (w.block_at(b.centre + d_adj * r), w.block_at(b.centre + d_old * r));
+            ((near.face, near.pos.x, near.pos.y) != (old.face, old.pos.x, old.pos.y) && wide < 0.55).then_some((d_in, near))
+        });
+        let (d_in, near) = found.expect("a narrow column at a seam near the corner");
+        let feet = b.centre + d_in * (b.layer_r(near.pos.z as f64) + 0.05);
+        assert!(!blocked(&w, feet), "free in the air before the wall");
+        for dz in 0..3 {
+            w.set_block(Block { pos: near.pos + glam::IVec3::new(0, 0, dz), ..near }, 3);
+        }
+        assert!(blocked(&w, feet), "the box reaches over the seam into the wall's column");
+    }
 
     fn world() -> World {
         World::new(256, 32, 1337)
