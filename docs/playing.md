@@ -61,6 +61,12 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `BURN` steps). `technoape-server report=1 seed= planet=` lists them under `volcanoes`: `at` (a direction for
   `run=stand at=x,y,z`), the rim's height, the crater's radius, `alive`, the lake's layer. Dig into the lake's floor
   or the conduit's wall and the lava runs in, counted.
+- Ground water (generation 12, ADR 0190): under the land stands a water table. A cave whose floor lies under it is
+  flooded to it, a spring where it meets the ground starts a stream, and a hole dug under it fills from the rock at the
+  rock's rate, at the calendar's pace (a shaft 3 m under the table on the 1536 planet fills in about 22 game minutes), to the
+  table and no higher; bail it and it fills again, counted. No keys or commands. `technoape-server report=1 seed=
+  planet=` prints `ground_water`: the table's depth by province, in the wettest and driest quarters, the share of
+  tight land (no table), springs and their streams, the flooded caves and the depth at and round the spawn.
 - Mars (generation 5): `/goto mars` lands on its day side; `run=stand body=2 at=x,y,z` stands on it (`body=0` Terra,
   `1` Luna), `look=Mars` (or `look=Terra`, `look=Luna`) faces that body's centre from where you stand; `report=1`
   prints a `mars` section (its kinds' shares, heights, the tubes its map marks). Its ground loads when you near
