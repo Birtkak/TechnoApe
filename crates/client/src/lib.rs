@@ -642,8 +642,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // the globe's pictures start on a worker now; what was seen is kept beside the save (ADR 0077); the
     // meridians as `App::meridian` has them
     let mut globe = globe::State::new(
-        [world.bodies[0].map().cloned(), world.bodies.get(world.moon).and_then(|b| b.map().cloned())],
-        [world.bodies[0].spawn_point() - world.bodies[0].centre, -DVec3::X],
+        &engine::bodies::BODIES,
+        (0..engine::bodies::BODIES.len()).map(|b| if b == 0 { world.bodies[0].spawn_point() - world.bodies[0].centre } else { -DVec3::X }).collect(),
         save_path.as_ref().map(|s| format!("{s}.seen")),
     );
     globe.id = my_id;
