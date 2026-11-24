@@ -188,8 +188,9 @@ impl Herds {
         herd
     }
 
-    /// Wakes the sites near these feet (body 0's frame), making each from the seed the first time.
-    fn wake(&mut self, world: &World, feet: DVec3, tick: u64) {
+    /// Wakes the sites near these feet (body 0's frame), making each from the seed the first time. (The server
+    /// also calls it for a spectator, which keeps herds awake but is not one of `tick`'s players.)
+    pub fn wake(&mut self, world: &World, feet: DVec3, tick: u64) {
         let b = &world.bodies[0];
         let up = (feet - b.centre).normalize_or(DVec3::Z);
         let (e1, e2) = (up.any_orthonormal_vector(), up.cross(up.any_orthonormal_vector()));

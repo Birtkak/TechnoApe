@@ -195,6 +195,10 @@ pub enum ToClient {
     /// Cells whose edit is gone, generation's again (ADR 0189: snow packed over a clutter plant melted or dug,
     /// the plant back): sent after the tick's `Edits`. Last of the variants, as `Layers`.
     Unedit(Vec<Block>),
+    /// This player is a spectator now (true) or no longer (ADR 0202, `/playmode spectator`): it flies through
+    /// everything with `phys::ghost` and acts on nothing. Sent on a change only (a join is never one). Last of the
+    /// variants, as `Layers`.
+    Spectator(bool),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,
@@ -299,6 +303,7 @@ pub fn fits(world: &crate::world::World, m: &ToClient) -> bool {
         ToClient::Digging { at, .. } => at.as_ref().is_none_or(|(s, _, _)| s.fits(world)),
         ToClient::Furnace { at, .. } => ok(at),
         ToClient::Unedit(v) => v.iter().all(ok),
+        ToClient::Spectator(_) => true,
         ToClient::Layers(v) => v.iter().all(|(c, s)| {
             let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), s.map_or(0, |s| s.z)) };
             ok(&b) && s.is_none_or(|s| crate::blocks::BLOCKS.get(s.block).is_some())

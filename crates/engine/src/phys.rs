@@ -336,6 +336,31 @@ pub fn onto_ground(world: &World, p: &mut Player) {
     p.vel -= n * p.vel.dot(n).min(0.0);
 }
 
+/// Where a player leaving spectator mode at `pos` stands (ADR 0202): on the open ground of its
+/// column, the first solid cell from the sky down, so not in a cave under it nor in the air over it; on the
+/// surface of water there (it swims). None where that ground is lava, on a gas body, or out of every body's frame.
+pub fn open_ground(world: &World, pos: DVec3) -> Option<DVec3> {
+    // (in space: past a body radius over the ground, it is not over a column but out at the sky)
+    let b = world.bodies.get(world.frame_at(pos)).filter(|b| !b.gas && (pos - b.centre).length() < 2.0 * b.radius)?;
+    let d = (pos - b.centre).normalize_or(DVec3::Y);
+    // from over the highest ground and what may be built on it, down a quarter metre at a time
+    let mut r = b.radius + crate::world::AMP + 64.0;
+    while r > b.r0 + 1.0 {
+        let feet = b.centre + d * r;
+        let below = feet - d * 0.25;
+        if world.lava_at(below) {
+            return None;
+        }
+        if blocked(world, below) || world.water_surface(below).is_some() {
+            let mut p = Player::at(feet, tangent(d.any_orthonormal_vector(), d, DVec3::X));
+            onto_ground(world, &mut p);
+            return Some(p.pos);
+        }
+        r -= 0.25;
+    }
+    None
+}
+
 /// How far over a not-yet-loaded body's highest ground a player is held (`held_by_a_body`).
 pub const HOLD_M: f64 = 200.0;
 
@@ -354,6 +379,53 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool 
     let sprinted = step(world, p, inp, dt);
     world.time = now;
     sprinted
+}
+
+/// A spectator's step (ADR 0202): flight along the look at the input's `fly` speed (`GHOST_FLY` when 0), up and down
+/// with jump and `down`, through blocks and fluids, with no gravity, no box and no ground. The body stays upright on
+/// the pull's up and turns with the input; it changes frame as any step does.
+pub fn ghost(world: &World, p: &mut Player, inp: &Input, dt: f64) {
+    let up = pull(world, p.pos).0;
+    let look = DVec3::new(inp.fwd[0] as f64, inp.fwd[1] as f64, inp.fwd[2] as f64);
+    let mut fwd = tangent(if look.is_finite() && look != DVec3::ZERO { look } else { p.fwd }, up, p.fwd);
+    if inp.turn != 0.0 {
+        fwd = turned(up, inp.turn as f64, fwd);
+    }
+    let right = fwd.cross(up).normalize();
+    let ahead = fwd * (inp.pitch as f64).cos() + up * (inp.pitch as f64).sin();
+    let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
+    let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
+    let speed = if inp.fly > 0.0 { (inp.fly as f64).min(FLY_MAX) } else { GHOST_FLY };
+    p.vel = ((right * mv.x + ahead * mv.z).clamp_length_max(1.0) + up * vert) * speed;
+    p.pos += p.vel * dt;
+    // held over the grid's bottom layer: no cells lie under it (the review; the soak's diving spectators)
+    if let Some(b) = world.bodies.get(world.frame_at(p.pos)) {
+        let r = p.pos - b.centre;
+        if r.length() < b.r0 + GHOST_FLOOR {
+            p.pos = b.centre + r.normalize_or(up) * (b.r0 + GHOST_FLOOR);
+        }
+    }
+    (p.up, p.fwd, p.on_ground) = (up, fwd, false);
+    if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
+        (p.fwd, p.up) = (r * p.fwd, r * p.up);
+    }
+}
+
+/// A spectator's speed when its input names none (m/s).
+pub const GHOST_FLY: f64 = 10.0;
+
+/// How far over a body's bottom layer (`r0`) a spectator is held: no cells lie under it.
+pub const GHOST_FLOOR: f64 = 2.0;
+
+/// A spectator's step at the input's own world time (`Input::t`), as `step_at`: where a frame crossing lands
+/// depends on where the bodies are, so the client and the server step it at the same moment.
+pub fn ghost_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) {
+    let now = world.time;
+    if inp.t != 0.0 {
+        world.time = inp.t;
+    }
+    ghost(world, p, inp, dt);
+    world.time = now;
 }
 
 /// One step of `dt` seconds for one player. True when it sprinted (ADR 0118): the sprint was applied and the
@@ -602,6 +674,72 @@ mod tests {
         for _ in 0..(secs * 20.0) as usize {
             step(w, p, inp, 0.05);
         }
+    }
+
+    #[test]
+    fn a_spectator_flies_into_the_ground_and_hangs_where_it_stops() {
+        let w = world();
+        let g = ground(&w);
+        let u = up(&w, g);
+        // straight down at 10 m/s for 2 s: 20 m into the rock, where a walker's box would have stopped on the ground
+        let mut p = Player::at(g, tangent(DVec3::X, u, DVec3::Z));
+        let down = Input { down: true, fly: 10.0, ..Default::default() };
+        for _ in 0..120 {
+            ghost(&w, &mut p, &down, DT);
+        }
+        assert!((p.pos - (g - u * 20.0)).length() < 1e-6 && inside(&w, &p), "{} m down", (g - p.pos).dot(u));
+        // (the review) a walker given the same input, creative and flying down, stops on the ground: the ghost's is no box
+        let mut walker = Player::at(g, tangent(DVec3::X, u, DVec3::Z));
+        for _ in 0..120 {
+            step(&w, &mut walker, &down, DT);
+        }
+        assert!(!inside(&w, &walker) && (g - walker.pos).dot(u) < 1.0, "a walker {} m down", (g - walker.pos).dot(u));
+        // let go, it does not fall
+        let at = p.pos;
+        for _ in 0..40 {
+            ghost(&w, &mut p, &Input::default(), DT);
+        }
+        assert_eq!(p.pos, at);
+        // forward along the look through a hill: as far as the speed says
+        let ahead = Input { mv: [1.0, 0.0], fly: 5.0, ..Default::default() };
+        ghost(&w, &mut p, &ahead, DT);
+        assert!(((p.pos - at).length() - 5.0 * DT).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_spectator_stops_over_the_core_however_long_it_dives() {
+        // (the review) the soak's spectator bots dove 30 % of their ticks: under the grid's bottom layer the
+        // world has no cells, so a ghost is held over it
+        let w = world();
+        let b = &w.bodies[0];
+        let g = ground(&w);
+        let mut p = Player::at(g, tangent(DVec3::X, up(&w, g), DVec3::Z));
+        let down = Input { down: true, fly: FLY_MAX as f32, ..Default::default() };
+        for _ in 0..600 {
+            ghost(&w, &mut p, &down, DT);
+            assert!((p.pos - b.centre).length() >= b.r0 + GHOST_FLOOR - 1e-6, "{} under r0", b.r0 - (p.pos - b.centre).length());
+        }
+    }
+
+    #[test]
+    fn a_spectator_s_step_at_the_input_s_time_agrees_across_a_frame_crossing() {
+        // (the review) out of a frame where a ghost lands depends on where the bodies are: the client and the server
+        // step it at the input's time, whatever their own clocks say, or a fast one is corrected by metres
+        let w0 = world();
+        let soi = w0.soi(0);
+        let out = DVec3::X;
+        let start = w0.bodies[0].centre + out * (1.5 * soi - 5.0);
+        let inp = Input { jump: true, fly: FLY_MAX as f32, t: 1000.0, ..Default::default() };
+        let (mut a, mut b) = (world(), world());
+        (a.time, b.time) = (1000.0, 1060.0);
+        let (mut pa, mut pb) = (Player::at(start, DVec3::Y), Player::at(start, DVec3::Y));
+        for _ in 0..3 {
+            ghost_at(&mut a, &mut pa, &inp, DT);
+            ghost_at(&mut b, &mut pb, &inp, DT);
+        }
+        assert_ne!(a.frame_at(pa.pos), 0, "the ghost left the home's frame");
+        assert!((pa.pos - pb.pos).length() < 0.01, "{} m apart", (pa.pos - pb.pos).length());
+        assert_eq!((a.time, b.time), (1000.0, 1060.0), "the clocks put back");
     }
 
     #[test]

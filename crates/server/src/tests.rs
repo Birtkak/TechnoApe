@@ -2,6 +2,8 @@ use super::*;
 use engine::net::local;
 use std::sync::mpsc::channel;
 
+mod spectator;
+
 fn server_with(n: usize) -> (Server, Vec<Link<ToServer, ToClient>>) {
     let (tx, rx) = channel();
     let mut s = Server::new(256, 32, 1, rx);
