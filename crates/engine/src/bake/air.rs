@@ -869,6 +869,67 @@ pub fn test_world(m: usize, r: f64) -> (Vec<f32>, Vec<f32>) {
 mod tests {
     use super::*;
 
+    /// What a step of the bake's air costs on the 4 km and 8 km planets' grids, on the pool and on one thread, and
+    /// how many steps a bake's year is (cargo test -p engine --profile play --lib air_cost -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn air_cost() {
+        for planet in [6144, 12288] {
+            let r = planet as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
+            let m = planet / 128;
+            let year = crate::world::year_of(planet as i32, crate::world::REAL);
+            let (days, per_day) = ((year / DAY).round() as usize, (DAY / 10.0).round() as usize);
+            for threads in [0, 1] {
+                let (ground, water) = test_world(m, r);
+                let mut a = Air::new(m, r, ground, water, Params::default());
+                a.year = year;
+                let mut run = || {
+                    for _ in 0..200 {
+                        a.step(10.0);
+                    }
+                    let t = std::time::Instant::now();
+                    for _ in 0..1000 {
+                        a.step(10.0);
+                    }
+                    t.elapsed().as_secs_f64() * 1e6 / 1000.0
+                };
+                let us = if threads == 0 { run() } else { rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap().install(run) };
+                println!("{{\"air_cost\":{{\"planet\":{planet},\"columns\":{},\"threads\":{threads},\"us_a_step\":{us:.0},\"days\":{days},\"steps_a_bake\":{},\"bake_s\":{:.1}}}}}", 6 * m * m, (days + 18) * per_day, (days + 18) as f64 * per_day as f64 * us / 1e6);
+            }
+        }
+    }
+
+    /// `air_cost` by pass, on the pool (cargo test -p engine --profile play --lib air_passes -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn air_passes() {
+        let planet = 6144;
+        let r = planet as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
+        let m = planet / 128;
+        let (ground, water) = test_world(m, r);
+        let mut a = Air::new(m, r, ground, water, Params::default());
+        for _ in 0..200 {
+            a.step(10.0);
+        }
+        let mut t = [0f64; 5];
+        let n = 1000;
+        for _ in 0..n {
+            let mut lap = |k: usize, f: &mut dyn FnMut(&mut Air), a: &mut Air| {
+                let s = std::time::Instant::now();
+                f(a);
+                t[k] += s.elapsed().as_secs_f64();
+            };
+            lap(0, &mut |a| a.sun_ground(10.0), &mut a);
+            lap(1, &mut |a| a.winds(10.0), &mut a);
+            lap(2, &mut |a| a.carry(10.0), &mut a);
+            lap(3, &mut |a| a.lift(10.0), &mut a);
+            lap(4, &mut |a| a.rain_and_land(10.0), &mut a);
+            a.t += 10.0;
+        }
+        let us: Vec<String> = ["sun_ground", "winds", "carry", "lift", "rain_and_land"].iter().zip(&t).map(|(n2, v)| format!("{n2} {:.0}", v * 1e6 / n as f64)).collect();
+        println!("air_passes us a step: {}", us.join(", "));
+    }
+
     fn small() -> Air {
         let (g, w) = test_world(16, 1000.0);
         Air::new(16, 1000.0, g, w, Params::default())

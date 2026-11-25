@@ -71,7 +71,7 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 /// (`world::VOLCANOES`) plays on an 8 (`Map::bake_v8`, the same bytes as before); 10 solves the water table and lays
 /// the springs' streams (`ground`, ADR 0190) and keeps the table after the volcanoes: a world before generation 12
 /// (`world::GROUND_WATER`) plays on a 9 (`Map::bake_v9`, the same bytes as before).
-pub const VERSION: u32 = 10;
+pub const VERSION: u32 = 11;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -152,28 +152,36 @@ impl Map {
     }
     /// The bake of version 7, its climate over the hand-set YEAR: the map of every world before real gravity.
     pub fn bake_v7(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::sky::YEAR);
         m.version = 7;
         m.finish(&m.to_bytes());
         m
     }
     /// The bake of version 8, before the volcanoes: the map of every world from real gravity to generation 9.
     pub fn bake_v8(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
         m.version = 8;
         m.finish(&m.to_bytes());
         m
     }
     /// The bake of version 9, before the ground water: the map of every world from the volcanoes to generation 11.
     pub fn bake_v9(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { ground_water: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { ground_water: false, coarse_air: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
         m.version = 9;
+        m.finish(&m.to_bytes());
+        m
+    }
+    /// The bake of version 10, the year of its climate on the live air grid's own cells: the map of the worlds of
+    /// generations 12 and 13.
+    pub fn bake_v10(seed: i32, n: i32) -> Map {
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { coarse_air: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        m.version = 10;
         m.finish(&m.to_bytes());
         m
     }
     /// The year its climate was baked over, seconds: real gravity's from version 8, else the hand-set YEAR.
     pub fn year(&self) -> f64 {
-        if self.version == VERSION || self.version == 9 || self.version == 8 { crate::world::year_of(self.n, crate::world::REAL) } else { crate::sky::YEAR }
+        if self.version == VERSION || self.version == 10 || self.version == 9 || self.version == 8 { crate::world::year_of(self.n, crate::world::REAL) } else { crate::sky::YEAR }
     }
     /// The map of a bake on plates once its `life` stage has run (`run_with`).
     fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, volcanoes: Vec<volcano::Volcano>, (table, solve): (Vec<f32>, (u32, f32)), t: std::time::Instant) -> Map {
@@ -194,7 +202,7 @@ impl Map {
     }
     /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
     pub fn bake_v5(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, volcanoes: false, ground_water: false, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::sky::YEAR);
         m.version = 5;
         m.finish(&m.to_bytes());
         m
@@ -202,7 +210,7 @@ impl Map {
     /// The bake of version 6, before the polar caps (ADR 0107; Terra's stages without `ice`): what a save made on
     /// one plays on.
     pub fn bake_v6(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { volcanoes: false, ground_water: false, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::sky::YEAR);
         m.version = 6;
         m.finish(&m.to_bytes());
         m
@@ -220,7 +228,7 @@ impl Map {
             3 => postcard::to_stdvec(&(3u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, rivers(), &self.climate)),
             4 => postcard::to_stdvec(&(4u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, &self.rivers, &self.lakes, &self.climate)),
             luna::VERSION | mars::VERSION => postcard::to_stdvec(&(self, &self.tubes)),
-            VERSION => postcard::to_stdvec(&(self, &self.volcanoes, &self.table, self.solve)),
+            VERSION | 10 => postcard::to_stdvec(&(self, &self.volcanoes, &self.table, self.solve)),
             9 => postcard::to_stdvec(&(self, &self.volcanoes)),
             _ => postcard::to_stdvec(self),
         }
@@ -237,7 +245,7 @@ impl Map {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 Map { volcanoes: postcard::from_bytes(rest).map_err(|e| format!("not a map's volcanoes: {e}"))?, ..m }
             }
-            VERSION => {
+            VERSION | 10 => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 let (volcanoes, rest) = postcard::take_from_bytes(rest).map_err(|e| format!("not a map's volcanoes: {e}"))?;
                 let (table, solve) = postcard::from_bytes(rest).map_err(|e| format!("not a map's water table: {e}"))?;
@@ -274,7 +282,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == 9 || m.version == 8 || m.version == 7 || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == 10 || m.version == 9 || m.version == 8 || m.version == 7 || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -289,7 +297,7 @@ impl Map {
             || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0)
             || m.tubes.iter().any(|&(c, d, r)| c as usize >= cells || !(d.is_finite() && d.abs() < 64.0) || !(r > 0.0 && r < 16.0))
             || m.volcanoes.iter().any(|v| !v.sane(cells))
-            || (m.version == VERSION) != (m.table.len() == cells)
+            || (m.version == VERSION || m.version == 10) != (m.table.len() == cells)
             || m.table.iter().any(|t| !t.is_finite());
         // Luna's maps (`luna::VERSION`) hold no rock provinces: her rock is her kinds' (`Map::rock`); a Terra map's
         // are Terra's; a planet's crust (`mars::VERSION`) and an icy body's (`icy::VERSION`) have none yet (their
@@ -546,7 +554,7 @@ pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params, year: f64
     assert_eq!(stages[0], Plates, "run_with bakes on plates; a crust without them is `luna::run`");
     let (t, s) = (std::time::Instant::now(), seed as u32 as u64);
     let lp = if stages.contains(&Ice) { life::LifeParams::default() } else { life::LifeParams::capless() };
-    let lp = life::LifeParams { year, ..lp };
+    let lp = life::LifeParams { year, air_coarse: if p.coarse_air { lp.air_coarse } else { 1 }, ..lp };
     let (mut crust, mut plates, mut year, mut life, mut volcanoes) = (None, None, None, None, Vec::new());
     for &st in stages {
         match st {
@@ -700,6 +708,16 @@ pub fn report(stage: &'static str, f: f32) {
 
 /// The bake's stage `name` has ended (its `lap`): the next one is under way.
 pub(crate) fn lap(name: &str) {
+    // BAKE_LAPS=1: each stage's seconds on stderr, as it ends (what to speed up: `bake_laps`, ignored)
+    thread_local!(static LAST: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) });
+    if std::env::var_os("BAKE_LAPS").is_some() {
+        let now = std::time::Instant::now();
+        if let Some(t) = LAST.replace(Some(now)) {
+            eprintln!("[bake] lap {name}: {:.2} s", (now - t).as_secs_f64());
+        } else {
+            eprintln!("[bake] lap {name} (the first: no time before it)");
+        }
+    }
     SINK.with(|s| {
         if let Some((_, k)) = s.borrow_mut().as_mut() {
             *k = STAGES.iter().position(|s| s.0 == name).map_or(*k, |i| (i + 1).min(STAGES.len() - 1));
@@ -733,7 +751,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 9, 8, 7, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
 }
 
 /// `find` among maps of these versions.
@@ -785,6 +803,10 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     if b.hash == hash {
         return Some(b);
     }
+    let b = Map::bake_v10(seed, n);
+    if b.hash == hash {
+        return Some(keep(b));
+    }
     let b = Map::bake_v9(seed, n);
     if b.hash == hash {
         return Some(keep(b));
@@ -833,8 +855,11 @@ pub fn get(seed: i32, n: i32) -> Arc<Map> {
 /// `get` for a world of generation `gen`: before the ground water (`world::GROUND_WATER`) the map of version 9, before
 /// the volcanoes (`world::VOLCANOES`) the map of version 8, before real gravity (`world::REAL`) the map of version 7.
 pub fn get_at(seed: i32, n: i32, gen: u8) -> Arc<Map> {
-    if gen >= crate::world::GROUND_WATER {
+    if gen >= crate::world::COARSE_AIR {
         return get(seed, n);
+    }
+    if gen >= crate::world::GROUND_WATER {
+        return find_in(seed, n, None, &[10]).unwrap_or_else(|| keep(Map::bake_v10(seed, n)));
     }
     if gen >= crate::world::VOLCANOES {
         return find_in(seed, n, None, &[9]).unwrap_or_else(|| keep(Map::bake_v9(seed, n)));
@@ -1172,5 +1197,22 @@ mod tests {
         let (a, b) = (Map::bake(5, 256), shared(5, 256));
         assert_eq!(a.hash, b.hash);
         assert!(a.biome.iter().any(|&x| x < life::LAND_BIOMES) && a.h.iter().any(|&h| h < 0.0), "land and sea");
+    }
+
+    /// The coarse year and its hand-over to the live air (map version 11; a planet this size is the smallest that
+    /// takes them, 12 air cells a face edge on 8): the same map to the bit on the pool and on one thread.
+    /// (5 minutes: by hand when the bake's climate changes; passed 2026-11-25.)
+    #[ignore]
+    #[test]
+    fn the_coarse_year_bakes_the_same_on_one_thread() {
+        assert_ne!(life::air_cells(1536.0, life::LifeParams::default().air_cell_m, 2), (12, 12), "the coarse path");
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap().install(|| Map::bake(5, 1536));
+        assert_eq!(one.hash, shared(5, 1536).hash);
+    }
+
+    /// Version 10's map (generations 12 and 13: the year on the live grid) bakes as it did before version 11.
+    #[test]
+    fn version_10_bakes_as_before() {
+        assert_eq!(format!("{:016x}", Map::bake_v10(5, 256).hash), "ac21af4bc7501ea7");
     }
 }

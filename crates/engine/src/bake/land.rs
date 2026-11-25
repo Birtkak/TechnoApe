@@ -60,6 +60,9 @@ pub struct Params {
     pub volcanoes: bool,
     /// The water table and the springs' streams (`super::ground`, map version 10 on); false: the bakes before it.
     pub ground_water: bool,
+    /// The climate's year on an air grid twice as coarse as the live one (`life::LifeParams::air_coarse`, map
+    /// version 11 on); false: the bakes before it, the year on the live grid's own cells.
+    pub coarse_air: bool,
 }
 
 impl Default for Params {
@@ -90,6 +93,7 @@ impl Default for Params {
             rift_w: 0.012,
             volcanoes: true,
             ground_water: true,
+            coarse_air: true,
         }
     }
 }

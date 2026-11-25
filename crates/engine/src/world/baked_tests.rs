@@ -2224,3 +2224,79 @@ fn tile_cost() {
         println!("{{\"tile_cost\":{{\"generation\":{gen},\"warp\":{},\"us_a_tile\":{best:.1}}}}}", b.warp);
     }
 }
+
+/// The 4 km planet's bake, stage by stage (and the 8 km one's with BAKE_N=12288)
+/// (BAKE_LAPS=1 cargo test -p engine --profile play --lib bake_laps -- --ignored --nocapture).
+#[test]
+#[ignore]
+fn bake_laps() {
+    let n: i32 = std::env::var("BAKE_N").ok().and_then(|v| v.parse().ok()).unwrap_or(6144);
+    crate::bake::lap("start");
+    let t = std::time::Instant::now();
+    let m = Map::bake(1337, n);
+    eprintln!("[bake] planet {n}: {:.1} s in all, {} map cells a face edge, {} bytes", t.elapsed().as_secs_f64(), m.m, m.to_bytes().len());
+}
+
+/// What the coarser year changes on the 4 km planet: the map of version 11 against version 10 of one seed
+/// (cargo test -p engine --profile play --lib coarse_air_compare -- --ignored --nocapture).
+#[test]
+#[ignore]
+fn coarse_air_compare() {
+    let (new, old) = (Map::bake(1337, 6144), Map::bake_v10(1337, 6144));
+    let (cn, co) = (new.climate.as_ref().unwrap(), old.climate.as_ref().unwrap());
+    let stat = |a: &[f32], b: &[f32]| {
+        let n = a.len() as f64;
+        let mean = |v: &[f32]| v.iter().map(|x| *x as f64).sum::<f64>() / n;
+        let abs = a.iter().zip(b).map(|(x, y)| (*x as f64 - *y as f64).abs()).sum::<f64>() / n;
+        let max = a.iter().zip(b).map(|(x, y)| (*x - *y).abs()).fold(0.0f32, f32::max);
+        format!("mean {:.2} against {:.2}, differs {:.2} on average, {:.2} at most", mean(a), mean(b), abs, max)
+    };
+    println!("coarse_air: air columns {} (both), sea-level temperature C: {}", cn.theta.len(), stat(&cn.theta, &co.theta));
+    println!("coarse_air: rain mm a day: {}", stat(&cn.rain, &co.rain));
+    println!("coarse_air: day swing K: {}", stat(&cn.swing, &co.swing));
+    let same = new.biome.iter().zip(&old.biome).filter(|(a, b)| a == b).count() as f64 / new.biome.len() as f64;
+    let land = new.h.iter().zip(&new.biome).zip(&old.biome).filter(|((h, _), _)| **h > 0.0);
+    let (mut l, mut ls) = (0usize, 0usize);
+    for ((_, a), b) in land {
+        l += 1;
+        ls += (a == b) as usize;
+    }
+    println!("coarse_air: biomes the same on {:.1} % of all cells, {:.1} % of the land's; rivers {} against {}; lakes {} against {}; spawns {:.0} m apart",
+        same * 100.0, ls as f64 / l as f64 * 100.0, new.rivers.len(), old.rivers.len(), new.lakes.len(), old.lakes.len(),
+        (glam::DVec3::from_array(new.spawn) - glam::DVec3::from_array(old.spawn)).length() * 4245.0);
+    let mut share = [[0usize; 2]; 16];
+    for (a, b) in new.biome.iter().zip(&old.biome) {
+        share[(*a as usize).min(15)][0] += 1;
+        share[(*b as usize).min(15)][1] += 1;
+    }
+    let n = new.biome.len() as f64;
+    println!("coarse_air: biome shares % (new/old): {}", share.iter().enumerate().filter(|(_, s)| s[0] + s[1] > 0).map(|(k, s)| format!("{k}: {:.1}/{:.1}", s[0] as f64 / n * 100.0, s[1] as f64 / n * 100.0)).collect::<Vec<_>>().join(", "));
+}
+
+/// Does the live air rain as much from the coarse year's handover as from the fine year's end: the first days'
+/// rain on the 1536 planet of seed 7, from a map of version 11 and of version 10
+/// (cargo test -p engine --profile play --lib live_rain_compare -- --ignored --nocapture).
+#[test]
+#[ignore]
+fn live_rain_compare() {
+    for (name, map) in [("version 11", Map::bake(7, 1536)), ("version 10", Map::bake_v10(7, 1536))] {
+        let c = map.climate.as_ref().unwrap();
+        let mut a = crate::bake::air::Air::new(c.m as usize, c.r, c.ground.clone(), c.water.clone(), crate::bake::air::Params::default());
+        a.year = map.year();
+        a.restore(&c.state).unwrap();
+        let area: f64 = a.area.iter().map(|x| *x as f64).sum();
+        let total = |v: &[u32]| v.iter().map(|x| *x as f64).sum::<f64>();
+        let (vap0, cloud0, soil0, snow0) = (total(&a.vap), total(&a.cloud), total(&a.soil), total(&a.snow));
+        let mut days = Vec::new();
+        for _ in 0..6 {
+            let mut fell = 0f64;
+            for _ in 0..180 {
+                a.step(10.0);
+                fell += total(&a.fell);
+            }
+            days.push(format!("{:.2}", fell / 4096.0 / area * 1000.0));
+        }
+        println!("live_rain {name}: grid {} cells a face edge; at the start vapour {:.3e}, cloud {:.3e}, soil {:.3e}, snow {:.3e} units; rain mm a day over six days: {}; the year's mean {:.2}",
+            c.m, vap0, cloud0, soil0, snow0, days.join(", "), c.rain.iter().map(|x| *x as f64).sum::<f64>() / c.rain.len() as f64);
+    }
+}

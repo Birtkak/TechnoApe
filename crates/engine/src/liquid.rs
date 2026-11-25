@@ -608,6 +608,28 @@ impl Liquids {
         v.sort_unstable_by_key(|(c, _)| *c);
         v
     }
+    /// What generation was counted to have put into each stored column when it was first stored, in `all`'s order.
+    /// A save keeps them: the generated sea follows the tide, so the amount asked again at a load is another, and
+    /// the water counted (`counted`) moved by the difference at every load of a world with stored water by the sea
+    /// (2 units in a test at a time warp; the developer's worlds a few a load).
+    pub fn gens(&self) -> Vec<i64> {
+        let mut v: Vec<(Col, i64)> = self.cols.keys().map(|&c| (c, self.gen.get(&c).copied().unwrap_or(0))).collect();
+        v.sort_unstable_by_key(|x| x.0);
+        v.into_iter().map(|x| x.1).collect()
+    }
+    /// After `restore` of `cols`: each column's generated share as the save kept it (`gens`), in place of the one
+    /// just asked at the load's tide. A save without them (or of another length) keeps what was asked.
+    pub fn restore_gens(&mut self, cols: &[ColWater], gens: &[i64]) {
+        if gens.len() != cols.len() {
+            return;
+        }
+        for ((c, _), &was) in cols.iter().zip(gens) {
+            if let Some(v) = self.gen.get_mut(c) {
+                self.gen_total += was - *v;
+                *v = was;
+            }
+        }
+    }
     fn col_water(&self, c: Col) -> ColWater {
         (c, self.cols[&c].iter().map(|&i| &self.nodes[i as usize]).map(|n| (n.floor, n.ceil, pack(n.kind, n.water))).collect())
     }

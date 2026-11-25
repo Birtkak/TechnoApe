@@ -89,6 +89,28 @@ map by hash. A map is kept in the file of its own version, in the bytes of its o
   `World::baked` and `Server::baked` [0043]. A world saved on a v2 map before ADR 0058 moved under its edits (the hash is
   unchanged so it is not detected; accepted, v2 was a day old) [0058].
 
+### The bake's year on an air grid twice as coarse [0204, 2026-11-25]
+A new world's minutes were its climate's year of weather: real gravity's year (ADR 0181) is 334 days on the 4 km
+planet and 472 on the 8 km one where the hand-set year was 54, and the air model stepped every one of them on the
+live grid's own columns, 147 s of the 4 km planet's 187 and 531 s on the 8 km one (play build, 2026-11-25). From
+map version 11 (world generation 14) the bake runs its year on a grid twice as coarse (256 m cells; 8 a face edge at
+least, so a planet of 1024 columns or fewer keeps the live grid as before, and the 1536 one runs 12 cells on 8, in
+the live grid's steps) in steps twice as long, the same share of a cell a step: an eighth of the work. The year's means go from that grid to the cells and to the live grid's columns by the same
+smoothing as before. The live grid's state at world time 0 is each of its columns laid from its coarse column (the
+air by its share of the area; the ground's heat as it is; soil, snow and dirt come down by its share of the land;
+the sea takes what the whole units' cut leaves, so the water's count is the year's), then two days at its own size into the
+year's turn, so its winds and its own columns' land and water are its own. The 4 km planet bakes in 64 s (climate
+24). Worlds of generations 12 and 13 keep their map of version 10, baked as before (`Map::bake_v10`).
+What it changes, one seed baked both ways on the 4 km planet: the land, the lakes and the river network are the
+same; the sea-level temperature differs 0.84 C on average (3.8 at most), the planet 0.7 C colder; rain 0.30 mm a
+day on average of a mean of 0.65, 6 % drier; the biome on 80.7 % of the land's cells is the same, on 19.3 % another
+(borders moved); the spawn 296 m away. The cold, dry lean is not explained.
+The developer's call (2026-11-25, "Yes, coarser climate"), asked after a like-for-like speed-up of the step found
+nothing (the carry pass with each edge worked out once: 8 % faster on one thread, slower on the pool).
+Alternatives not taken: the year sampled every few days with the seasons run faster (soil and snow would need
+their rates scaled); the air model on the GPU. Left: the erosion (27 s) and the water table (8 s) are now as much
+as the climate.
+
 ### Volcanoes and vents, fed by the planet's heat [0188, 2026-11-23]
 The developer: "it's time to add volcanoes and volcanic vents ... The heat from the planet itself will sustain".
 Terra's arcs get volcanoes with a chamber, a conduit and a crater lake of lava, and vents where the heat reaches

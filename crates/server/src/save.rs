@@ -97,6 +97,11 @@ pub struct Save {
     /// did; a save without it loads with the aquifer at rest.
     #[serde(skip)]
     pub ground: GroundTail,
+    /// Each stored water column's generated share as it was counted when stored (`Liquids::gens`, in `water`'s
+    /// order): an eighth tail, written (with the seven before it) only when there are stored columns; a save without
+    /// it asks generation again at the load's tide, as every save before it did.
+    #[serde(skip)]
+    pub gens: Vec<i64>,
 }
 
 /// `Liquids::chambers` and `Liquids::erupted`.
@@ -113,7 +118,7 @@ impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new(), snow: Default::default(), ground: GroundTail::default() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new(), snow: Default::default(), ground: GroundTail::default(), gens: Vec::new() }
     }
 }
 
@@ -374,7 +379,8 @@ impl Save21 {
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
-        let ground = self.ground != GroundTail::default();
+        let gens = !self.gens.is_empty();
+        let ground = self.ground != GroundTail::default() || gens;
         let snow = self.snow != engine::snow::State::default() || ground;
         let crust = !self.crust.is_empty() || snow;
         let chambers = self.chambers != Chambers::default() || crust;
@@ -400,6 +406,9 @@ impl Save {
         }
         if ground {
             b.extend(postcard::to_allocvec(&self.ground).expect("the ground water serialises"));
+        }
+        if gens {
+            b.extend(postcard::to_allocvec(&self.gens).expect("the generated shares serialise"));
         }
         b
     }
@@ -435,8 +444,16 @@ impl Save {
                                                                                     Ok((v, aq)) => {
                                                                                         s.snow = v;
                                                                                         if !aq.is_empty() {
-                                                                                            match postcard::from_bytes(aq) {
-                                                                                                Ok(g) => s.ground = g,
+                                                                                            match postcard::take_from_bytes(aq) {
+                                                                                                Ok((g, gens)) => {
+                                                                                                    s.ground = g;
+                                                                                                    if !gens.is_empty() {
+                                                                                                        match postcard::from_bytes(gens) {
+                                                                                                            Ok(v) => s.gens = v,
+                                                                                                            Err(e) => eprintln!("the save's generated shares ({} bytes) unread, asked again: {e}", gens.len()),
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
                                                                                                 Err(e) => eprintln!("the save's ground water ({} bytes) unread, loaded at rest: {e}", aq.len()),
                                                                                             }
                                                                                         }

@@ -60,6 +60,11 @@ pub struct LifeParams {
     pub air_dt: f32,
     /// days the air settles at the spring equinox before the year it is measured over (`Air::year`)
     pub air_spin: usize,
+    /// How many times as coarse as the live air grid the bake runs its year (`air_cells`): 2 from map version 11
+    /// (generation 14), 1 before. Its steps are as many times as long, the same share of a cell a step.
+    pub air_coarse: usize,
+    /// Days the live grid then runs at its own size into the year's turn, from the coarse year's end laid on it.
+    pub air_settle: usize,
     /// the year the air is run over, seconds (`sky::Sky::year`: real gravity's from bake version 8, ADR 0180)
     pub year: f64,
     /// mm a day that evaporates per C over 0 (what rain must beat to run off or wet the ground)
@@ -109,6 +114,8 @@ impl Default for LifeParams {
             air_cell_m: 128.0,
             air_dt: 10.0,
             air_spin: 18,
+            air_coarse: 2,
+            air_settle: 2,
             year: crate::sky::YEAR,
             pet_per_c: 0.02,
             wet_slope: 0.045,
@@ -256,6 +263,13 @@ fn lap_at(name: &'static str, times: &mut Vec<(&'static str, f64)>, t: &mut Inst
     super::lap(name);
 }
 
+/// The air grids of a planet of `planet_n` columns, cells a face edge: the live one (a cell `cell_m` wide, 8 at
+/// least) and the bake's, `coarse` times as coarse (8 at least: a small planet's are the same grid).
+pub fn air_cells(planet_n: f64, cell_m: f64, coarse: usize) -> (usize, usize) {
+    let ma = ((planet_n / cell_m).round() as usize).max(8);
+    (ma, (ma / coarse.max(1)).max(8))
+}
+
 /// The `climate` stage (stage 5).
 pub fn climate(b: &Bake, p: &LifeParams) -> Year {
     let (mut times, mut t) = (Vec::new(), Instant::now());
@@ -263,7 +277,7 @@ pub fn climate(b: &Bake, p: &LifeParams) -> Year {
     let g = &b.g;
     let n = g.n();
     let planet_n = g.m as f64 * 8.0;
-    let ma = ((planet_n / p.air_cell_m).round() as usize).max(8);
+    let (ma, mb) = air_cells(planet_n, p.air_cell_m, p.air_coarse);
     let ga = Grid::new(ma, g.r);
     // stage 5: the air columns' mean land height and water share, the model run to a repeating day
     let (mut sum, mut land, mut all) = (vec![0f64; ga.n()], vec![0u32; ga.n()], vec![0u32; ga.n()]);
@@ -280,12 +294,74 @@ pub fn climate(b: &Bake, p: &LifeParams) -> Year {
     let water: Vec<f32> = (0..ga.n()).map(|a| 1.0 - land[a] as f32 / all[a].max(1) as f32).collect();
     let mut air = super::air::Air::new(ma, g.r, ground.clone(), water.clone(), super::air::Params::default());
     air.year = p.year;
-    let m = air.year(p.air_dt, p.air_spin);
-    lap("climate (air model)", &mut times);
-    // to the fine cells: smooth, then the lapse by the cell's own height
-    let theta = upsample(&ga, g, &m.theta);
-    let rain = upsample(&ga, g, &m.rain);
-    let swing = upsample(&ga, g, &m.swing);
+    let (m, theta, rain, swing) = if mb == ma {
+        let m = air.year(p.air_dt, p.air_spin);
+        lap("climate (air model)", &mut times);
+        // to the fine cells: smooth, then the lapse by the cell's own height
+        let (theta, rain, swing) = (upsample(&ga, g, &m.theta), upsample(&ga, g, &m.rain), upsample(&ga, g, &m.swing));
+        (m, theta, rain, swing)
+    } else {
+        // The year on a grid `air_coarse` times as coarse, in steps as many times as long: a year's means are
+        // smooth over hundreds of metres and are smoothed onto the cells below either way, and the year is most of
+        // a bake (real gravity's is 334 days on the 4 km planet, 472 on the 8 km one). The coarse columns' ground
+        // and water as the live grid's are made, from the cells.
+        let gb = Grid::new(mb, g.r);
+        let (mut sum, mut land, mut all) = (vec![0f64; gb.n()], vec![0u32; gb.n()], vec![0u32; gb.n()]);
+        let colb: Vec<u32> = (0..n as u32).into_par_iter().map(|c| gb.locate(g.d(c))).collect();
+        for c in 0..n {
+            let a = colb[c] as usize;
+            all[a] += 1;
+            if b.land(c) && !b.lake(c) {
+                land[a] += 1;
+                sum[a] += b.h[c].max(0.0) as f64;
+            }
+        }
+        let groundb: Vec<f32> = (0..gb.n()).map(|a| if land[a] > 0 { (sum[a] / land[a] as f64) as f32 } else { 0.0 }).collect();
+        let waterb: Vec<f32> = (0..gb.n()).map(|a| 1.0 - land[a] as f32 / all[a].max(1) as f32).collect();
+        let mut airb = super::air::Air::new(mb, g.r, groundb, waterb, super::air::Params::default());
+        airb.year = p.year;
+        let mc = airb.year(p.air_dt * (ma / mb) as f32, p.air_spin);
+        // the live grid at the year's turn: each of its columns takes its coarse column's air, ground heat, soil
+        // and snow (what is counted by its share of the area), then the grid runs `air_settle` days at its own
+        // size into world time 0, so its winds and its own columns' land and water are its own
+        let parent: Vec<usize> = (0..ga.n() as u32).map(|c| gb.locate(ga.d(c)) as usize).collect();
+        // what lies on the ground (soil water, snow, dirt come down) is laid by the square metre of land: a live
+        // column's land holds what its coarse column's land held on as much ground, so soil a year left full is full.
+        // (By area alone a column of land beside the sea began drier than that; by the coarse column's share among
+        // the live columns whose middles lie in it, the 1536 planet's 12 cells on 8 left half its land short of
+        // full, and soil short of full gives the rivers no runoff: the save-mid-rain test waited 50 minutes of
+        // rain for none.)
+        for c in 0..ga.n() {
+            let k = parent[c];
+            let share = (air.area[c] / airb.area[k]) as f64;
+            let part = |v: u32| (v as f64 * share) as u32;
+            let (mine, its) = (air.area[c] as f64 * (1.0 - air.water[c] as f64), airb.area[k] as f64 * (1.0 - airb.water[k] as f64));
+            let land = if its > 0.0 { mine / its } else { 0.0 };
+            let lies = |v: u32| (v as f64 * land) as u32;
+            air.tg[c] = airb.tg[k];
+            (air.soil[c], air.snow[c], air.dirt_down[c]) = (lies(airb.soil[k]), lies(airb.snow[k]), lies(airb.dirt_down[k]));
+            for l in 0..super::air::LAYERS {
+                let (i, j) = (c * super::air::LAYERS + l, k * super::air::LAYERS + l);
+                air.theta[i] = airb.theta[j];
+                (air.vap[i], air.cloud[i], air.dirt[i]) = (part(airb.vap[j]), part(airb.cloud[j]), part(airb.dirt[j]));
+            }
+        }
+        // the shares are cut to whole units (and on grids that do not nest, the 1536 planet's 12 cells on 8, do
+        // not add up to their coarse column): the sea takes the difference, so the water's count is the year's
+        air.sea = airb.sea;
+        air.sea += (airb.ledger() - air.ledger()) as i64;
+        (air.hold, air.t) = (None, -(p.air_settle as f64) * super::air::DAY);
+        for _ in 0..p.air_settle * (super::air::DAY / p.air_dt as f64).round() as usize {
+            air.step(p.air_dt);
+        }
+        air.t = 0.0;
+        lap("climate (air model)", &mut times);
+        // to the fine cells from the coarse year: smooth, then the lapse by the cell's own height; and to the
+        // live grid's columns, what the map's climate keeps
+        let (theta, rain, swing) = (upsample(&gb, g, &mc.theta), upsample(&gb, g, &mc.rain), upsample(&gb, g, &mc.swing));
+        let m = super::air::Means { theta: upsample(&gb, &ga, &mc.theta), swing: upsample(&gb, &ga, &mc.swing), rain: upsample(&gb, &ga, &mc.rain) };
+        (m, theta, rain, swing)
+    };
     let air_p = super::air::Params::default();
     let temp: Vec<f32> = (0..n).map(|c| theta[c] - air_p.cool(b.h[c])).collect();
     lap("climate to cells", &mut times);
@@ -486,4 +562,21 @@ pub fn shares(b: &Bake, l: &Life) -> [f64; 15] {
         *v /= if k < LAND_BIOMES as usize { land } else { sea };
     }
     a
+}
+
+#[cfg(test)]
+mod air_tests {
+    use super::*;
+
+    /// The bake runs its air twice as coarse as the live grid from generation 14 (a year of weather was 147 s of
+    /// the 4 km planet's 187, 531 of the 8 km one's): half the cells a face edge on the real planets, the same
+    /// grid where the live one is already at its least.
+    #[test]
+    fn the_bakes_air_is_half_the_live_grids_cells_a_face_edge() {
+        assert_eq!(air_cells(6144.0, 128.0, 2), (48, 24));
+        assert_eq!(air_cells(12288.0, 128.0, 2), (96, 48));
+        assert_eq!(air_cells(1536.0, 128.0, 2), (12, 8));
+        assert_eq!(air_cells(768.0, 128.0, 2), (8, 8));
+        assert_eq!(air_cells(6144.0, 128.0, 1), (48, 48));
+    }
 }
