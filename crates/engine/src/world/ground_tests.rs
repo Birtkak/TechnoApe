@@ -196,7 +196,8 @@ fn a_hole_dug_under_the_table_fills_to_it_at_the_rule_and_the_ledger_holds() {
 /// in it.
 #[test]
 fn a_spring_where_the_table_meets_the_ground_starts_a_stream() {
-    let (new, old) = (&*MAP, crate::bake::Map::bake_v9(5, 1536));
+    // (the map without ground water is the same land with the table off: version 9 is the land before hill country)
+    let (new, old) = (&*MAP, crate::bake::Map::bake_with(5, 1536, &crate::bake::land::Params { ground_water: false, ..Default::default() }));
     let seeping = (0..new.h.len()).filter(|&c| new.table[c] != crate::bake::ground::DRY && new.table[c] >= new.h[c] - 1e-3 && new.h[c] > 0.0).count();
     let was: std::collections::HashSet<u32> = old.rivers.iter().map(|r| r.cell).collect();
     let streams: Vec<&crate::bake::rivers::Reach> = new.rivers.iter().filter(|r| !was.contains(&r.cell)).collect();

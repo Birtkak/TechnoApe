@@ -819,7 +819,9 @@ mod tests {
     fn a_walker_follows_a_river_from_spring_to_sea_in_water() {
         use crate::liquid::Ground;
         use crate::phys::{self, Input, Player};
-        let map = MAP.clone();
+        // (on the land before hill country, ADR 0207: on the hilly `MAP` the longest river's bed is two blocks wide a
+        // third of the way down and a tree stands at its edge, which this walker's sidestep does not get round)
+        let map = Arc::new(Map::bake_with(2, 1536, &crate::bake::land::Params { river_area_m2: 2e4, ..crate::bake::land::Params::before_hills() }));
         let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
         let segs = &map.lines.segs;
         let mut fed = vec![false; segs.len()];

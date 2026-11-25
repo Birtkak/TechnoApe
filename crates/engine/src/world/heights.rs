@@ -75,8 +75,9 @@ impl Body {
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
         Some((z, ROWS.biomes[crate::bake::life::ICE as usize].top(roll, 0.0)))
     }
-    /// The highest of `plants_with`'s blocks, `plants_with(..).last()` to the bit (the test keeps that as its
-    /// reference): each plant's column is walked down from its top and stops at its first block (ADR 0102).
+    /// The highest of `plants_with`'s plant blocks, `plants_with(..).last()` to the bit leaving out the ice sheet (the
+    /// test keeps that as its reference; the far tiles ask `ice_sheet` themselves): each plant's column is walked down
+    /// from its top and stops at its first block (ADR 0102).
     pub fn plant_top_with(&self, face: usize, i: i32, j: i32, cand: &mut impl FnMut(usize, i32, i32) -> Option<Foot>) -> Option<(i32, u16)> {
         let mut best: Option<(i32, u16, bool)> = None;
         self.feet_over(face, i, j, cand, |f, p, dx, dz| {
@@ -341,9 +342,11 @@ impl Body {
                 t.min = t.min.min(hv as f32);
                 t.max = t.max.max(hv as f32);
                 t.h[u + v * P] = hv;
-                if self.baked.is_some() {
-                    (t.g[u + v * P], t.biome[u + v * P]) = self.ground_biome_at(f, pi, pj, d, hv);
-                    t.rock[u + v * P] = self.rock_at(f, pi, pj, d);
+                if let Some(b) = &self.baked {
+                    // one jittered point for the ground and the rock (each looked it up for itself)
+                    let at = self.map_point(b, pi, pj, d);
+                    (t.g[u + v * P], t.biome[u + v * P]) = self.ground_biome_from(b, f, pi, pj, d, hv, at);
+                    t.rock[u + v * P] = if self.gen < 4 && b.map.version == crate::bake::luna::VERSION { Rock::NONE } else { self.rock_from(b, f, pi, pj, d, at) };
                     if level == 0 {
                         for (z, m) in self.plants_with(f, fi, fj, &mut spots) {
                             t.max = t.max.max(self.layer_r(z as f64 + 1.0) as f32);

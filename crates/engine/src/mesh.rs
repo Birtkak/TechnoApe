@@ -132,7 +132,7 @@ fn mesh_as(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, crac
                         any_see = true;
                         glass_seen |= glass && is_in(glass_t, c);
                     }
-                    any_fall |= is_in(falls_t, c);
+                    any_fall |= slopes_on && is_in(falls_t, c);
                 }
             }
         }
@@ -340,15 +340,20 @@ fn mesh_as(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, crac
         }
     }
     // the cutout faces that open on air first: the client's fluff passes draw those alone (ADR 0103)
-    groups[6].sort_by_key(|q| q[1] >> 25 & 1 == 0);
-    let n_fluff = groups[6].iter().take_while(|q| q[1] >> 25 & 1 == 1).count() as u32;
+    // (two passes in the order found: what a stable sort by that bit gave)
+    let n_fluff = groups[6].iter().filter(|q| q[1] >> 25 & 1 == 1).count() as u32;
     let mut counts = [0u32; 6];
     let mut quads = Vec::with_capacity(groups.iter().map(|g| g.len()).sum());
     for (i, g) in groups.iter().enumerate() {
         if i < 6 {
             counts[i] = g.len() as u32;
         }
-        quads.extend_from_slice(g);
+        if i == 6 {
+            quads.extend(g.iter().filter(|q| q[1] >> 25 & 1 == 1));
+            quads.extend(g.iter().filter(|q| q[1] >> 25 & 1 == 0));
+        } else {
+            quads.extend_from_slice(g);
+        }
     }
     let n_cut = groups[6].len() as u32;
     Mesh { quads, counts, cut: n_cut, ray_cut: if cut == Cut::Full { n_cut } else { 0 }, fluff: n_fluff, glass: groups[7].len() as u32, still: 0, water: 0 }

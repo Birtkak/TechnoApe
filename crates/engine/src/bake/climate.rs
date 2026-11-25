@@ -55,4 +55,9 @@ impl Climate {
         let f = |v: &[f32]| super::land::upsample_at(g, d32, k, v);
         (f(&self.theta), f(&self.swing), f(&self.rain))
     }
+    /// `at`'s temperature alone.
+    pub fn theta_at(&self, g: &Grid, d: glam::DVec3) -> f32 {
+        let d32 = d.as_vec3().to_array();
+        super::land::upsample_at(g, d32, g.locate(glam::DVec3::from_array(d32.map(f64::from))), &self.theta)
+    }
 }

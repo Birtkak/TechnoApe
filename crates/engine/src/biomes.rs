@@ -133,7 +133,7 @@ impl Biome {
     /// The surface block, from `roll` (uniform in 0..1, the same over a patch) and the height over the sea.
     pub fn top(&self, roll: f32, over_sea: f32) -> u16 {
         if self.snow_over.is_some_and(|s| over_sea >= s) {
-            return BLOCKS.id("snow");
+            return *crate::snow::SNOW;
         }
         let mut acc = 0.0;
         for &(b, share) in &self.patches {

@@ -702,7 +702,8 @@ impl Liquids {
         let mut wells: Vec<(u64, (Col, i32))> = Vec::new();
         for c in cols {
             let Some(aq) = g.aquifer(c) else { continue };
-            for a in self.cols[&c].clone() {
+            for k in 0..self.cols[&c].len() {
+                let a = self.cols[&c][k];
                 let n = &self.nodes[a as usize];
                 if n.stack != 1 || (n.water > 0 && n.kind != crate::fluids::WATER) || self.heat.contains_key(&a) || n.floor as f64 >= aq.table {
                     continue;
@@ -2038,7 +2039,8 @@ impl Liquids {
         // layers by density (`carry`): only once a fluid other than water was stored
         let dens = if self.other { densities() } else { Vec::new() };
         let (cols, most) = (&self.cols, self.most());
-        let flows = |&a: &u32| {
+        // (into one list: a list a node was 54,000 allocations a step in a big flow)
+        let flows = |a: u32, outs: &mut Vec<(i32, i32, i32)>| {
             let n = &nodes[a as usize];
             let cg = cgs[n.col.body() as usize];
             let visc = rows[(n.kind as usize).min(rows.len() - 1)]; // an unknown kind (a newer save): the last row, as `Fluids::get`
@@ -2049,7 +2051,7 @@ impl Liquids {
                 let c = &mut came[m.dir as usize & 3];
                 (c.0, c.1) = (c.0 + m.fin as i64, c.1.max(m.vin as i64));
             }
-            let mut outs: Vec<(i32, i32, i32)> = Vec::with_capacity(n.links.len());
+            let first = outs.len();
             let mut total = 0i64;
             for l in &n.links {
                 let b = &nodes[l.to as usize];
@@ -2114,15 +2116,15 @@ impl Liquids {
             }
             // never more out than there is
             if total > wa {
-                for o in &mut outs {
+                for o in &mut outs[first..] {
                     o.1 = (o.1 as i64 * wa.max(0) / total) as i32;
                 }
             }
-            outs
         };
         // on the caller's thread: side by side on rayon's global pool, a server tick waited behind the client's chunk
         // jobs and cave walks there; alone a step of 54,000 awake nodes took 12 ms so, 8 ms side by side
-        let outs: Vec<(i32, i32, i32)> = awake.iter().flat_map(flows).collect();
+        let mut outs: Vec<(i32, i32, i32)> = Vec::with_capacity(awake.len() * 4);
+        awake.iter().for_each(|&a| flows(a, &mut outs));
         let mut outs = outs.into_iter();
         for &a in &awake {
             for (l, (v, out, frac)) in self.nodes[a as usize].links.iter_mut().zip(&mut outs) {
@@ -2474,7 +2476,10 @@ impl Liquids {
                         if hi > t {
                             // upstream: the open river pours in its steady flow whatever this column holds, until
                             // the water here stands over its level (a dam's pond: the patch grows upstream)
-                            if n.surface() > t + SEA_DH {
+                            // (after the flow, `!start`, only `sea` below is read: what is poured or grown is not
+                            // worked out a second time)
+                            if !start {
+                            } else if n.surface() > t + SEA_DH {
                                 grow.push(d);
                             } else if let (acct, Some((q, grad, _))) = river_of(&mut self.river_at, g, d) {
                                 // its share of the reach's flow: all of it straight downstream, none across; the
@@ -2489,13 +2494,14 @@ impl Liquids {
                             }
                         } else if hi < t || (n.surface() - t).abs() < SEA_DH {
                             sea = Some((t, river_of(&mut self.river_at, g, d).0));
-                        } else {
+                        } else if start {
                             grow.push(d);
                         }
                     }
                     // a dry column over the open water beside it: nothing can pass between them
                     Some(n) if n.water == 0 && n.stack == 1 && lo < hi && n.floor as i64 * U >= hi => {}
-                    _ => grow.push(d),
+                    _ if start => grow.push(d),
+                    _ => {}
                 }
             }
             if !start {

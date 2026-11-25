@@ -3,7 +3,7 @@
 //! and 8 corners through 3D directions, and every distance and area is the true one on the sphere, so
 //! nothing downstream knows where a face ends.
 use glam::DVec3;
-use std::collections::HashMap;
+use crate::world::FxMap;
 use std::f64::consts::FRAC_PI_2;
 
 /// The engine's face axes (`world.rs`, AX): the face normal and the directions of i and j.
@@ -27,7 +27,7 @@ pub struct Grid {
     /// area of a cell in m^2 by its place on a face (the same on all six)
     area: Vec<f32>,
     /// neighbours of the cells on a face's border, folded over the seam (NONE pads)
-    edge: HashMap<u32, [u32; 8]>,
+    edge: FxMap<u32, [u32; 8]>,
 }
 
 fn ax(f: usize) -> [DVec3; 3] {
@@ -36,7 +36,7 @@ fn ax(f: usize) -> [DVec3; 3] {
 
 impl Grid {
     pub fn new(m: usize, r: f64) -> Grid {
-        let mut g = Grid { m, r, dir: Vec::new(), area: Vec::new(), edge: HashMap::new() };
+        let mut g = Grid { m, r, dir: Vec::new(), area: Vec::new(), edge: FxMap::default() };
         let n = 6 * m * m;
         g.dir = (0..n)
             .map(|c| {
@@ -82,7 +82,7 @@ impl Grid {
     }
     /// A grid without its tables, for `dir_at` and `locate_xy` alone (a map's cells).
     pub fn bare(m: usize, r: f64) -> Grid {
-        Grid { m, r, dir: Vec::new(), area: Vec::new(), edge: HashMap::new() }
+        Grid { m, r, dir: Vec::new(), area: Vec::new(), edge: FxMap::default() }
     }
     pub fn idx(&self, f: usize, i: usize, j: usize) -> u32 {
         ((f * self.m + j) * self.m + i) as u32

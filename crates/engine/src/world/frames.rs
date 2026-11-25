@@ -46,7 +46,7 @@ impl World {
         let list = crate::bodies::sizes(rows, planet_n, moon_n)
             .into_iter()
             .enumerate()
-            .map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { map.as_ref().and_then(|_| Some(rows[i].bake.as_ref()?.get(seed, n))) }))
+            .map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { map.as_ref().and_then(|_| Some(rows[i].bake.as_ref()?.get_at(seed, n, gen))) }))
             .enumerate()
             .map(|(i, (n, m))| match m {
                 Some(m) if lazy && lazy_row(rows, i) => (n, Source::Later(m.hash)),
@@ -428,9 +428,11 @@ impl World {
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
+        // (the frame's own pose once, not once a body: this is asked for every body that moves, every tick)
+        let (pf, nf) = (self.pose(f, self.time), self.nominal(f));
         let mut centre = [DVec3::ZERO; crate::bodies::MAX];
         for (i, c) in centre.iter_mut().enumerate().take(self.bodies.len()) {
-            *c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
+            *c = if i == f { nf } else { pf.from_inertial(nf, self.pose(i, self.time).centre) };
         }
         let pull_at = |x: DVec3| -> DVec3 {
             (0..self.bodies.len())

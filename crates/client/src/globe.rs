@@ -97,7 +97,7 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize), cap: f64) -> (Vec<u32
     let height: Vec<f32> = cells.iter().map(|&c| map.h[c]).collect();
     let lake: std::collections::HashSet<u32> = map.lakes.iter().map(|l| l.0).collect();
     // an airless crust's map (Luna's, Mars's): its kinds' colours and relief below the datum too
-    let (luna, mars, icy) = (map.crust(), map.version == engine::bake::mars::VERSION, map.version == engine::bake::icy::VERSION);
+    let (luna, mars, icy) = (map.crust(), engine::bake::mars::is(map.version), map.version == engine::bake::icy::VERSION);
     // the ground's height a texel, the sea's level over a sea: its span over the body's radius (the columns, a metre
     // each, 4 n round) is how far the globe's surface stands out (`RELIEF`)
     let ground: Vec<f32> = height.iter().map(|&z| if luna { z } else { z.max(0.0) }).collect();
