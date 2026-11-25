@@ -703,6 +703,8 @@ A column is under water when the water's level (`water_at`) stands over its grou
   camera (still capped by the setting), start by interleaved gradient noise, ends at the sea's sphere (no cloud
   under the sea level, no cloud through the planet). Lit by Sol by the sun's height where the cell is (the night
   side's are dark from orbit), grey to slate with held rain, fading into the air as far ground does [0076, 0098].
+- **Half resolution.** See "Clouds at half resolution" below: the march runs once for each 2 x 2 pixels unless
+  `clouds_res=full` [0206].
 - **Shadow.** One sample where the sun ray crosses the slab's middle, in `light()` (so ground, bounce hits and
   particles get it). The soft shadow `cl_soft` reads the same field as the cells but smooth; the clouds themselves
   stay blocky. Clouds shadow only the sun's light, not the moon's; they are not in the traced scene, so reflections
@@ -711,6 +713,46 @@ A column is under water when the water's level (`water_at`) stands over its grou
   [0076].
 - **Cost accepted:** GPU median frame +0.8 ms with clouds low, +1.5 ms high (about 0.35 of it the shadow in
   `light()`); the frame thread gains a 166 kB texture blend at about 6 Hz and the drops' spawning [0076].
+
+### Clouds at half resolution [0206, 2026-11-25]
+The clouds' march runs once for each 2 x 2 pixels, in a pass of its own before the screen's (`fs_clouds_half`,
+post.wgsl; `Gi::clouds_half`), because at 2560 x 1440 the march per pixel was 1.4 ms of a 6.7 ms GPU frame.
+- **Targets.** Two at half the window's size, rebuilt with `Gi` on a resize (22 MB at 2560 x 1440): an
+  `Rgba16Float` with the premultiplied colour and alpha, and an `Rgba32Float` with the nearest and the farthest of
+  the four pixels' G-buffer distances (1e30 stands for the sky) and what the clouds hide up to each. 32-bit
+  floats because Terra's clouds are marched from any distance, Luna's 235 km too; a 16-bit float ends at 65 km.
+- **March.** The ray through the middle of the four pixels, to the farthest of their distances (the sky if any is
+  sky), so no cloud is cut short behind a silhouette; on the way it notes what is hidden when it passes the
+  nearest. The jitter is the same interleaved gradient noise by the half-resolution pixel; the upsample's blend
+  of four smooths it.
+- **Upsample** (`fs_clouds_up`, in the screen pass where `fs_clouds` ran): the four nearest half-resolution rays,
+  bilinear. A ray counts only if it reached the pixel's own distance (2 % slack; the pixel's own 2 x 2 always
+  did); the pixel takes the ray's far result or its near one, whichever distance is its own in proportion
+  (`d / near >= far / d`: the far one), the near one as the ray's colour times `a_near / a_far`. So a ridge in
+  front of a bank takes only the wisps in front of the ridge, and ridges against clouds stay as sharp as the
+  G-buffer. Where all four count with their far result (most of the sky) the clouds' sampler blends them in one
+  read; where none hides anything nothing is read but the four distances.
+- **Not run** where `clouds` draws nothing at all: no cloud map yet, or the camera under the sea level
+  (`clouds_seen`, frame.rs); then neither pass of the half path is recorded.
+- **Measured** (play build, `run=stand quick=1`, full against half, two of each interleaved): at 2560 x 1440 the
+  screen stage 3.76 / 3.73 -> 3.04 / 3.05 ms, GPU p50 7.08 / 7.09 -> 6.42 / 6.47, frame p50 7.71 / 7.76 ->
+  6.89 / 6.95 (clouds off in the same weather: screen 2.52, so the clouds' share went 1.22 -> 0.52 ms); at
+  1920 x 1080 2.34 / 2.35 -> 1.95 / 1.95, GPU p50 4.43 / 4.41 -> 4.01 / 4.02. The weather follows the wall
+  clock, so only a pair compares; the first version (one distance a ray, 16-bit) measured 3.24 / 3.27 ->
+  2.59 / 2.60 against 2.07 with clouds off: the same share.
+- **Look** (shots of seven views, full against half; a shot is the window's picture at a third of its size, so
+  these are 1920 x 1080 frames seen small): the same shapes (0.02 to 7 % of pixels differ by more than 4 of 255,
+  under 1 % by more than 16); overcast and `weather=clear` are the same to the pixel; from 80 km and 300 km up
+  the cloud deck is there as at full. Pixel for pixel at 2560 x 1440 (a filmstrip frame at `capture_w=2560`):
+  the cells' edges are softer by about a pixel and the march's dither, a one-pixel hatch at full, is a fainter
+  two-pixel mottle; no banding.
+- **The aurora** stays at full resolution, in the same fragment as the upsample.
+- **`clouds_res=full`** (a run argument) keeps the march per pixel: the reference for shots and speed.
+- **Stage.** The half-resolution pass is timed in `screen`, where the full march was, so `GPU_STAGES` and the
+  baseline's keys are unchanged.
+Alternatives rejected: a checkerboard or temporal reuse (nothing accumulates the clouds over frames, a history would
+shimmer or lag behind the wind); a stage of its own (the baseline's keys would move for no gain).
+Open: the developer's look at it in play; from orbit at small windows the cells' edges are softer than at full.
 
 ## Rain, snow, storms and sound
 
