@@ -995,7 +995,11 @@ impl App {
         let night = 1.0 - x * x * (3.0 - 2.0 * x);
         let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45 + Vec3::new(0.02, 0.03, 0.07) * air * night * 1.5;
         // under water (ADR 0071): a blue fog over everything, thick by 12 m, as dim as the day above it
-        let fog = if self.world.water_surface(p.pos).is_some() { 0.09 } else { 0.0 };
+        // inside lava (bug 2026-11-24_18-47-07): its own glow close around the eye and nothing through it, thick by
+        // a metre; told to the composite by the fog's sign (post.wgsl). What is drawn over the composite is left
+        // out below: the fluids' surfaces from inside, glass, the clouds and the aurora
+        let in_lava = self.world.lava_at(p.pos);
+        let fog = if in_lava { -LAVA_FOG } else if self.world.water_surface(p.pos).is_some() { 0.09 } else { 0.0 };
         let deep_light = 0.04 + 0.96 * day;
         let tune = (
             self.settings.on(S::Bounce),
@@ -1022,7 +1026,7 @@ impl App {
             tide: [pull(tide.luna, tide.h_luna), pull(tide.sun, tide.h_sun)],
             // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
             // w: the wind here for the leaves' sway (ADR 0090), a breeze in calm air, none in a shot
-            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, if self.shot.is_some() { 0.0 } else { 0.5 + blow as f32 }],
+            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog.max(0.0), deep_light, if self.shot.is_some() { 0.0 } else { 0.5 + blow as f32 }],
             cloud: [0.0; 4],
             // the plants' sway and how far they reach (ADR 0091)
             plants: {
@@ -1162,7 +1166,7 @@ impl App {
             gpu.queue.write_buffer(&gpu.lamp_cells, 0, bytemuck::cast_slice(&lamp_grid(&lamps)));
         }
         // the clouds (ADR 0076): their map blended to this moment, and where the planet and its sea are
-        let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0;
+        let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0 && !in_lava;
         if b0.sea.is_some() && self.sky.m() > 0 {
             // a shot's clock stands still, so it shows the newest map whole rather than a blend stuck where a
             // message's time left it (a forced weather= came in as a step: ADR 0073)
@@ -1191,7 +1195,7 @@ impl App {
         };
         // none of either oval in view: the clouds' pass skips its march, or is not run at all for it
         let v3 = |a: [f32; 4]| Vec3::new(a[0], a[1], a[2]);
-        if cl[8][1] > 0.0 && !aurora_seen(&frustum_planes(vp), v3(cl[0]), [v3(cl[1]), v3(cl[2]), v3(cl[3])], sun, cl[8]) {
+        if in_lava || cl[8][1] > 0.0 && !aurora_seen(&frustum_planes(vp), v3(cl[0]), [v3(cl[1]), v3(cl[2]), v3(cl[3])], sun, cl[8]) {
             cl[8][1] = 0.0;
         }
         let aurora_on = cl[8][1] > 0.0;
@@ -1446,7 +1450,7 @@ impl App {
             gi.composite(&mut rp);
             rp.set_bind_group(0, &gpu.bind, &[]);
             // (with no background the sea goes with the land)
-            if !sea_args.is_empty() && !self.view.as_ref().is_some_and(|v| v.bare) {
+            if !sea_args.is_empty() && !in_lava && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.sea_pipeline);
                 if self.args.get("mdi", 1) == 1 {
                     rp.multi_draw_indirect(&gpu.indirect, IND_SEA, sea_args.len() as u32);
@@ -1456,13 +1460,13 @@ impl App {
                     }
                 }
             }
-            if self.wquad_n > 0 && !self.view.as_ref().is_some_and(|v| v.bare) {
+            if self.wquad_n > 0 && !in_lava && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.water_pipeline);
                 rp.draw(0..self.wquad_n * 6, 0..1);
             }
             // glass over the water (ADR 0081; shortcut: glass under the water's surface draws over it; when
             // anyone builds under water, sort the two by chunk)
-            if !glass_args.is_empty() && !self.view.as_ref().is_some_and(|v| v.bare) {
+            if !glass_args.is_empty() && !in_lava && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.glass_pipeline);
                 rp.set_index_buffer(gpu.quad_index.slice(..), wgpu::IndexFormat::Uint32);
                 if self.args.get("mdi", 1) == 1 {
@@ -1733,6 +1737,9 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
 /// The aurora's numbers for post.wgsl (`Post::aurora`, 0164-magnetic-field): the oval's colatitude, its
 /// brightness at the home's field times `scale` (the `field=` argument) faded out by the daylight in the air here
 /// (`Globals::sky` w), the home's sea radius and the sky's clock in the hour. Body 0 is the home.
+/// The fog per metre with the eye inside lava: the world is gone within a metre (98 % at 1 m).
+const LAVA_FOG: f32 = 4.0;
+
 pub(crate) fn aurora_post(world: &World, scale: f64, day: f32, clock: f64) -> [f32; 4] {
     let a = engine::sky::aurora(world.field(0) * scale);
     // it fades out as the air here lightens through twilight (a day sky drowns it)
