@@ -30,7 +30,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   off-screen `acts="0.5:say:/playmode spectator"`, a bot `say /playmode spectator` (its `report` gains `"spectator"`); F3 the overlay of
   numbers in groups: Performance, Simulation, Position, Ground (biome, rock province, the rock's heat at the feet's layer,
   the fluid at feet and eye, snow in eighths, the generation and map version, the tide on Terra), Sky (the clock, the local
-  sun time and season on Terra, Sol's height, Luna's phase, lit share, elongation and height), World (air, weather, `Felt`:
+  sun time and season on Terra, with "polar night" or "polar day" where Sol does not cross the horizon that day, Sol's height, Luna's phase, lit share, elongation and height), World (air, weather, `Felt`:
   the felt temperature at the eye, the air's and the mean radiant temperature; field, seed, sizes), Player; Position's
   `Looking at` the look-at panel's lines; the compass has the ground's name in a tag at its right (the biome, Luna's,
   Mars's or the icy moon's kind of ground, else the rock province; none on a gas giant), faded in when it changes; the compass line ends with the felt temperature at the eye, `12.4 °C` (the

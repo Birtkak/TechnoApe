@@ -200,9 +200,81 @@ pub fn local_hour(w: &engine::world::World, t: f64, up: DVec3) -> f64 {
     (12.0 + ha / std::f64::consts::TAU * 24.0).rem_euclid(24.0)
 }
 
+/// What Sol does today at body-frame direction `up` when it does not cross the horizon there (`decl` its
+/// declination, radians): ", polar night" or ", polar day", else nothing. Past the polar circle in its winter Sol
+/// stays down at every local hour: F3's 15:57 with Sol 25 degrees under the horizon (2026-11-24) was the pole at
+/// the solstice, where Sol stands the tilt's 25 degrees down all day, and the hour was right.
+/// shortcut: Sol's centre on the plain horizon (no disc, no height of the eye).
+pub fn polar(up: DVec3, decl: f64) -> &'static str {
+    let lat = up.z.clamp(-1.0, 1.0).asin();
+    if lat.abs() + decl.abs() <= std::f64::consts::FRAC_PI_2 {
+        ""
+    } else if lat * decl > 0.0 {
+        ", polar day"
+    } else {
+        ", polar night"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sol's height over the horizon at body-frame direction `up` on the home at t, degrees, as the frame takes it
+    /// for F3's Sol line (frame.rs `sun_deg`): from the poses.
+    fn sol_deg(w: &engine::world::World, t: f64, up: DVec3) -> f64 {
+        let p = w.pose(0, t);
+        up.dot((p.rot.inverse() * (w.sky.sun(t) - p.centre)).normalize()).clamp(-1.0, 1.0).asin().to_degrees()
+    }
+
+    /// F3's local time against where Sol stands (the review of 2026-11-24: 15:57 local with Sol 25 degrees down):
+    /// in the old sky and under real gravity, at every latitude, longitude and season tried, Sol is highest at
+    /// local noon, its height at every minute of the day is the one the hour, the latitude and the declination
+    /// give (sin h = sin lat sin dec + cos lat cos dec cos H), and at the equinox on the equator it is on the
+    /// horizon at 6 and 18. So the hour is right wherever Sol's height is; the pair seen is the polar night.
+    #[test]
+    fn the_local_time_is_tied_to_where_sol_stands() {
+        use std::f64::consts::TAU;
+        let real = engine::world::World::with_grid(256, engine::bodies::moon_columns(256), 1, None, None, 0.0, engine::world::GENERATION);
+        for w in [engine::world::World::new(256, 32, 1), real] {
+            let year = w.sky.year;
+            for (lat, lon) in [(-60.0f64, 10.0f64), (-28.0, 356.5), (0.0, 100.0), (45.0, 250.0), (70.0, 181.0)] {
+                let (la, lo) = (lat.to_radians(), lon.to_radians());
+                let up = DVec3::new(la.cos() * lo.cos(), la.cos() * lo.sin(), la.sin());
+                for t0 in [0.0, 0.25 * year, 0.5 * year, 0.7 * year] {
+                    let day: Vec<(f64, f64, f64)> = (0..1440).map(|k| t0 + k as f64 * engine::sky::DAY / 1440.0).map(|t| (t, sol_deg(&w, t, up), local_hour(&w, t, up))).collect();
+                    let top = day.iter().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+                    assert!((top.2 - 12.0).abs() < 0.1, "lat {lat} lon {lon} t {t0}: Sol highest ({:.1} deg) at {:.2} h local", top.1, top.2);
+                    for &(t, deg, h) in &day {
+                        let (dec, ha) = (w.sky.declination(t), (h - 12.0) / 24.0 * TAU);
+                        let want = (la.sin() * dec.sin() + la.cos() * dec.cos() * ha.cos()).asin().to_degrees();
+                        assert!((deg - want).abs() < 0.01, "lat {lat} lon {lon} t {t}: {h:.2} h local, Sol {deg:.2} deg, by the hour {want:.2}");
+                    }
+                    if lat == 0.0 && t0 == 0.0 {
+                        for hour in [6.0, 18.0] {
+                            let at = day.iter().min_by(|a, b| (a.2 - hour).abs().total_cmp(&(b.2 - hour).abs())).unwrap();
+                            assert!(at.1.abs() < 1.5, "the equinox on the equator at {hour} h: Sol {:.2} deg", at.1);
+                        }
+                    }
+                }
+            }
+            // the pair F3 showed: a step from the south pole in its midwinter Sol is the tilt under the horizon at
+            // every hour of the day, and the hour there is whatever the longitude of that step is
+            let t = 0.25 * year;
+            let down = engine::sky::TILT.to_degrees();
+            for lo in [0.0f64, 1.0, 2.5, 4.0] {
+                let up = DVec3::new(1e-6 * lo.cos(), 1e-6 * lo.sin(), -1.0).normalize();
+                assert!((sol_deg(&w, t, up) + down).abs() < 0.2, "Sol at the pole in midwinter: {:.2} deg", sol_deg(&w, t, up));
+                assert_eq!(polar(up, w.sky.declination(t)), ", polar night");
+                assert_eq!(polar(-up, w.sky.declination(t)), ", polar day");
+            }
+            let hours: Vec<f64> = [0.0f64, 1.0, 2.5, 4.0].iter().map(|lo| local_hour(&w, t, DVec3::new(1e-6 * lo.cos(), 1e-6 * lo.sin(), -1.0).normalize())).collect();
+            assert!(hours.iter().any(|h| (h - hours[0]).abs() > 3.0), "the hours round the pole: {hours:?}");
+            // inside the polar circles Sol rises and sets every day; past them only round the equinoxes
+            assert_eq!((polar(DVec3::new(0.0, 1.0, 1.0).normalize(), w.sky.declination(t)), polar(DVec3::new(0.0, 1.0, -1.0).normalize(), w.sky.declination(t))), ("", ""));
+            assert_eq!(polar(DVec3::new(0.0, 0.1, -1.0).normalize(), w.sky.declination(0.0)), "");
+        }
+    }
 
     #[test]
     fn luna_s_phases_follow_her_elongation() {
