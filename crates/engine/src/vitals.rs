@@ -282,8 +282,9 @@ pub fn still(inp: Input) -> Input {
 }
 
 /// A sleeping place (needs.md "What death costs"): a bed of leaves (any leaves block) with a fire in one of
-/// the 26 cells around it, where the ape fits: the two cells over it empty (no block, no torch) and its eye,
-/// standing there, out of the water. shortcut: a torch is the only fire until the cooking fire (needs step 4),
+/// the 26 cells around it, where the ape fits: the two cells over it empty (no block, no torch), its box where
+/// it wakes in no block (beside a narrow column of the conformal grid it reaches into the neighbours') and its
+/// eye, standing there, out of the water. shortcut: a torch is the only fire until the cooking fire (needs step 4),
 /// and only the bed's own face is looked at; the fire block joins here when it comes.
 pub fn sleeping_place(w: &crate::world::World, bed: crate::world::Block) -> bool {
     let is = |b: crate::world::Block, f: fn(&str) -> bool| crate::blocks::BLOCKS.get(w.block(b)).is_some_and(|d| f(&d.name));
@@ -292,6 +293,7 @@ pub fn sleeping_place(w: &crate::world::World, bed: crate::world::Block) -> bool
     let eye = feet + (feet - w.block_centre(bed)).normalize() * phys::EYE;
     is(bed, |n| n.ends_with(" leaves"))
         && (1..=2).all(|k| w.block(over(k)) == crate::blocks::AIR)
+        && !phys::blocked(w, feet)
         && w.water_surface(eye).is_none()
         && (-1..=1).flat_map(|x| (-1..=1).flat_map(move |y| (-1..=1).map(move |z| glam::IVec3::new(x, y, z)))).any(|d| d != glam::IVec3::ZERO && is(crate::world::Block { pos: bed.pos + d, ..bed }, |n| n == "torch"))
 }
@@ -623,5 +625,32 @@ mod tests {
     fn a_dead_player_s_input_moves_nothing() {
         let inp = Input { mv: [1.0, 0.5], jump: true, fly: 30.0, down: true, turn: 0.3, tilt: 0.1, roll: 0.1, fwd: [1.0, 0.0, 0.0], pitch: 0.4, t: 7.0, sprint: true };
         assert_eq!(still(inp), Input { pitch: 0.4, t: 7.0, ..Default::default() });
+    }
+
+    /// On the conformal grid (ADR 0131) a column near a cube corner is narrower than the ape: a block set beside the
+    /// bed, level with its body, leaves it no room though the two cells over the bed are empty. It is no sleeping
+    /// place then, so a respawn does not wake the ape inside that block.
+    #[test]
+    fn a_bed_on_a_narrow_column_walled_in_beside_is_no_sleeping_place() {
+        let mut w = World::with_maps_warp(768, 64, 5, None, None, 1.0);
+        let (leaves, torch, stone) = (crate::blocks::BLOCKS.id("oak leaves"), crate::blocks::BLOCKS.id("torch"), crate::blocks::BLOCKS.id("stone"));
+        let b = w.bodies[0].clone();
+        // the first dry column from a corner in whose cell the ape's box reaches into its neighbours
+        let reaches = |w: &World, bed: crate::world::Block| phys::cells(w, wake_at(w, bed)).any(|c| (c.face, c.pos.x, c.pos.y) != (bed.face, bed.pos.x, bed.pos.y));
+        let bed = (1..6)
+            .flat_map(|i| (1..80).map(move |j| (i, j)))
+            .map(|(i, j)| crate::world::Block { body: 0, face: 0, pos: glam::IVec3::new(i, j, b.first_air(b.col_height(0, i, j)) + 3) })
+            .find(|&bed| reaches(&w, bed) && w.water_surface(w.block_centre(bed)).is_none())
+            .expect("a narrow column near the corner");
+        let at = |d: glam::IVec3| crate::world::Block { pos: bed.pos + d, ..bed };
+        // a bed on a post in the open air, its fire under it
+        w.set_block(bed, leaves);
+        w.set_block(at(-glam::IVec3::Z), torch);
+        assert!(sleeping_place(&w, bed) && !phys::blocked(&w, wake_at(&w, bed)), "in the open the ape fits");
+        for d in [glam::IVec3::X, -glam::IVec3::X, glam::IVec3::Y, -glam::IVec3::Y] {
+            w.set_block(at(d + glam::IVec3::Z), stone);
+        }
+        assert!((1..=2).all(|k| w.block(at(glam::IVec3::Z * k)) == crate::blocks::AIR) && phys::blocked(&w, wake_at(&w, bed)), "the cells over it empty, the ape inside the blocks beside");
+        assert!(!sleeping_place(&w, bed), "no room for the ape: no sleeping place");
     }
 }
