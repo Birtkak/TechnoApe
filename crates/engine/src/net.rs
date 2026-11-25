@@ -86,6 +86,9 @@ pub enum ToServer {
     /// judged when the cell comes), each of the player's physics steps drinks (`Vitals::drink`). Sent on a
     /// change, as `Dig`; death lets go.
     Drink(Option<Block>),
+    /// Eat one of the food in hand (ADR 0210): alive, in survival, an item whose row `feeds`, hunger not
+    /// full. Answered by `Vitals` and `Inventory`; refused, nothing.
+    Eat,
 }
 
 impl ToServer {

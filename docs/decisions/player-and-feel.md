@@ -13,7 +13,7 @@ today. Numbers in brackets are the ADRs (`archive/NNNN-*.md`) a decision came fr
 - Survival needs a first, simple health and hunger; damage is from **impact** (the speed lost to something solid, any
   direction), not from the height fallen: a slow landing from a Luna cliff costs little, a fast hit kills whatever
   the gravity [0040].
-- Hunger alone never kills while there is no food [0040]. The bars: one smooth bar each that empties towards its sign
+- Empty hunger kills, now that there is food [0210]. The bars: one smooth bar each that empties towards its sign
   (a green cross for health, an orange stomach for hunger), number at the inner end; icons 28 px in four tones; "keep
   the colors and the health symbol", the stomach redrawn until it looked right [0040].
 - Mining and building like Lay of the Land: shape tools yes, physics on the world yes, blueprints yes, terrain
@@ -189,7 +189,7 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
   costs nothing [0040].
 - Hunger falls by 20 in one game day (1800 s) standing, twice as fast walking, 0.05 per block dug, counted per physics
   step the player itself takes (a time warp starves nobody). Above 14 hunger health returns a point per 8 s; at 0 it
-  goes a point per 10 s down to 1: hunger alone never kills (shortcut in `Vitals::step`) [0040, 0041].
+  goes a point per 10 s, to death ("<name> starved") [0040, 0041, 0210].
 - Thirst (a third need): 0 to 20 in `Vitals`, drained per physics step at hunger's rate (`vitals::rate`: a walk twice,
   a sprint six times): empty in 1,200 s standing, 600 s walking. Empty: a point of health every 10 s to death ("<name>
   died of thirst"), no healing while empty. An ape that never drinks nor eats dies at 1,400 s (unit test). `/thirst [n]`
@@ -229,6 +229,22 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
 - Bots that die respawn at once; the soak's bots switch survival and creative at random [0040].
 - Open: a sideways impact cannot hurt in survival today; a ceiling never hurts; leaving creative in mid-flight keeps the
   speed; the server trusts a changed client (it can dodge an impact by asking for a move) until it has roles [0040].
+
+### Eating [0210, 2026-11-25]
+- An item's row in `data/items.toml` may say `feeds = n`: the hunger points one fills (0 to 20; 0 or left out is not
+  food; a row over 20 is refused). The first foods are what lies on the ground: berries 2, mushroom 3 (raw forage
+  feeds little, needs.md "Food"; to tune in play).
+- The place button with a food in hand eats one (`play::food_in_hand`, after a block's window, a pick-up, a drink and
+  a bed in the use button's order, before the bucket, knapping and a place). `ToServer::Eat`, appended to the enum:
+  the server eats one of the hand's slot when alive, in survival, the item feeds and hunger is under full; else
+  nothing. Hunger rises by `feeds`, to full at most; the items' ledger counts the one eaten. Answered by the usual
+  `Vitals` and `Inventory`. Bots: `eat`; the soak's bots eat at random and are given berries.
+- With food in the world empty hunger takes health a point per 10 s to death, "<name> starved" (the shortcut of 0040
+  is gone). An ape that neither eats nor drinks still dies of thirst first (1,400 s).
+- Alternatives rejected: a friend's draft (2026-11-25: 0-100 float vitals, its own journal and death cost, Rust-coded
+  berry spawns) duplicated `Vitals`, the data journal and the clutter that already lays berries.
+- Open: food groups, spoiling, cooking doubling `feeds`, a sound and a bite's animation, the journal's first meal,
+  holding the button to eat on; the creatures that give meat (the next step: hurting animals).
 
 ## Death and what it costs
 
@@ -611,6 +627,9 @@ Replaces: 0036's eclipse rows on `nav::next_eclipse` and the playtest set-ups (l
   has a small odd part; a root grid that can coarsen past the power of two is a follow-up [0041].
 
 ## No longer holds
+
+- 0040's "hunger alone never kills while there is no food" (health stopped at 1 when starving): replaced by 0210,
+  starving kills.
 
 - 0036's playtest rows: the two eclipses from `nav::next_eclipse` (one sky cycle, Terra and Luna only) and the set-ups
   for light, the bars, death, flight and Luna: replaced by the sky's rows of ADR 0202, "Spectator mode, and the playtest

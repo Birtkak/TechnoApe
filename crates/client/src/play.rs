@@ -448,6 +448,8 @@ impl App {
                 self.link.send(ToServer::Use(self.bed_target().unwrap()));
             }
             "r" if self.drinking => self.drinking = false,
+            // a food in hand: the place button eats one (ADR 0210); the server says whether it was
+            "R" if self.food_in_hand() => self.link.send(ToServer::Eat),
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
                     // its own seq, as every message its own `Done` answers (a shared one is cleared by another's)
@@ -1355,6 +1357,12 @@ impl App {
     }
 
     /// The hard rock aimed at while a knapping stone is in hand in survival, bare-handed (ADR 0110).
+    /// Whether the hand holds a food (an item whose row `feeds`, ADR 0210), in survival.
+    pub(crate) fn food_in_hand(&self) -> bool {
+        let st = self.inv.get(self.slot).copied().flatten();
+        !self.creative && !self.hammer && !self.bucket && st.and_then(|s| engine::items::ITEMS.get(s.item)).is_some_and(|d| d.feeds > 0)
+    }
+
     pub(crate) fn knap_target(&self) -> Option<Block> {
         let st = self.inv.get(self.slot).copied().flatten()?;
         let (hit, _) = self.aim?;

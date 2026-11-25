@@ -245,7 +245,7 @@ impl Server {
                     }
                     // (creative too: it would change the mode it leaves to. Kept: Move, for F10 and a teleport; Hand, the
                     // hotbar slot only)
-                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_) | ToServer::Creative(_)) if self.clients[i].spectator => {}
+                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_) | ToServer::Eat | ToServer::Creative(_)) if self.clients[i].spectator => {}
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         // the steps the client took before this edit came before it: they are taken first, so the
                         // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
@@ -317,6 +317,7 @@ impl Server {
                     Recv::Msg(ToServer::Drink(at)) => self.hold_drink(i, at),
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
+                    Recv::Msg(ToServer::Eat) => self.eat(i),
                     Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
                     Recv::Msg(ToServer::Use(at)) => self.use_block(i, at),
                     Recv::Msg(ToServer::Close) => self.uncraft(i),
@@ -869,7 +870,9 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
         }
     }
     // (a sprint's drain only for a step that sprinted: not into a wall, not in the water; ADR 0118)
-    c.vitals.drain(vitals::rate(inp, sprinted));
+    if c.vitals.drain(vitals::rate(inp, sprinted), || format!("{name} starved")) {
+        deaths.extend(c.vitals.dead.clone());
+    }
     if c.vitals.parch(vitals::rate(inp, sprinted), || format!("{name} died of thirst")) {
         deaths.extend(c.vitals.dead.clone());
     }

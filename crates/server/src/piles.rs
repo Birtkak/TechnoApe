@@ -179,6 +179,19 @@ impl Server {
         }
     }
 
+    /// Client i eats one of the food in hand (ADR 0210): alive, in survival, an item that `feeds`, hunger not
+    /// full; the ledger counts it gone. Refused, nothing happens.
+    pub(super) fn eat(&mut self, i: usize) {
+        let c = &mut self.clients[i];
+        let k = c.hand as usize;
+        let Some(st) = c.slots[k].filter(|_| !c.creative && !c.spectator && c.vitals.dead.is_none() && c.vitals.hunger < vitals::MAX as f64) else { return };
+        let Some(feeds) = ITEMS.get(st.item).map(|d| d.feeds).filter(|f| *f > 0) else { return };
+        c.slots[k] = (st.n > 1).then_some(Stack { n: st.n - 1, ..st });
+        c.vitals.eat(feeds);
+        c.inv_dirty = true;
+        *self.item_made.entry(st.item).or_default() -= 1;
+    }
+
     /// Client i strikes the prospecting tool in hand on block `at` (ADR 0138): alive,
     /// within reach, hard rock there (`items::knaps`: rock, ore, the altered rocks), at most one every
     /// `items::PROSPECT_WAIT_S`. It costs the tool a use (its last leaves nothing) and only that player is
