@@ -441,6 +441,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 let (fwd, age) = (-c.phys.fwd, self.herds.clock);
                 match self.herds.add(&self.world, name, at.normalize(), fwd, age) {
                     Some(id) => format!("a {name} (animal {id}) stands three metres ahead"),
+                    None if self.herds.kinds.iter().any(|k| k.name == *name) && engine::herds::hot(&self.world, at.normalize()) => "no ground for an animal there (lava, or a live volcano's hot ground)".into(),
                     None if self.herds.kinds.iter().any(|k| k.name == *name) => "no ground to stand on there (water)".into(),
                     None => format!("no creature '{name}'. There are: {names}"),
                 }

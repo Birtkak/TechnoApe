@@ -1069,7 +1069,8 @@ impl App {
                     if bi == 0 && !space {
                         let lh = nav::local_hour(w, w.time, up);
                         let lm = (lh * 60.0).round() as u32 % (24 * 60);
-                        rows.push(("Here", format!("{:02}:{:02} local sun time, {} ({})", lm / 60, lm % 60, nav::season_name(up, w.time, w.sky.year), if up.z >= 0.0 { "north" } else { "south" }), 0));
+                        // (past a polar circle in its winter or summer the hour says nothing of the light: it is said)
+                        rows.push(("Here", format!("{:02}:{:02} local sun time, {} ({}){}", lm / 60, lm % 60, nav::season_name(up, w.time, w.sky.year), if up.z >= 0.0 { "north" } else { "south" }, nav::polar(up, w.sky.declination(w.time))), 0));
                     }
                     // Luna's height over this horizon, and her phase by her elongation from Sol
                     let moon_up = if space { None } else { Some(w.up_at(pos).dot((w.from_inertial(bi, w.sky.moon(w.time).centre) - pos).normalize()).clamp(-1.0, 1.0).asin().to_degrees()) };

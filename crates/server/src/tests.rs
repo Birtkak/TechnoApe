@@ -5248,3 +5248,66 @@ fn the_spawn_is_never_inside_what_was_built_on_it() {
     assert_eq!(s.goto("terra").map(|g| g.0), Some(now));
     assert!((now - at).dot(up) > 1.9 && (now - at).reject_from(up).length() < 0.5, "on top of it: {:?} from {:?}", now, at);
 }
+
+/// A player the save remembers comes back where it left; where someone built since, on the open ground of that
+/// column (as the spawn, `the_spawn_is_never_inside_what_was_built_on_it`), not inside the blocks. A free place is
+/// the same point to the bit.
+#[test]
+fn a_player_coming_back_where_someone_built_since_stands_free() {
+    let (mut s, links) = server_with(2);
+    let left = s.spawn();
+    let up = phys::up(&s.world, left);
+    s.absent.insert("free".into(), saved(&s.clients[0]));
+    links[0].send(ToServer::Hello { name: "free".into() });
+    s.tick();
+    assert_eq!(s.clients[0].phys.pos, left, "nothing built: the same point");
+    s.absent.insert("bob".into(), saved(&s.clients[0]));
+    for k in 0..2 {
+        let b = s.world.block_at(left + up * (0.5 + k as f64));
+        s.world.set_block(b, 3);
+    }
+    assert!(phys::blocked(&s.world, left), "built on");
+    links[1].send(ToServer::Hello { name: "bob".into() });
+    s.tick();
+    let now = s.clients[1].phys.pos;
+    assert!(!phys::blocked(&s.world, now), "back inside what was built there");
+    assert!((now - left).dot(up) > 1.9 && (now - left).reject_from(up).length() < 0.5, "on top of it: {now:?} from {left:?}");
+    assert_eq!(DVec3::from_array(s.clients[1].player.pos), now, "the others are told the same place");
+}
+
+/// The review of the volcano fixes: `/spawn <creature> live` onto lava (or a live volcano's hot ground) says so,
+/// not "(water)". A world of the generation of hot ground; before it the animal is made there, as ever.
+#[test]
+fn spawn_live_onto_lava_says_so() {
+    use engine::world::HOT_GROUND;
+    for gen in [HOT_GROUND - 1, HOT_GROUND] {
+        let (tx, rx) = channel();
+        let mut s = Server::baked_warp(256, 64, 3, 0.0, gen, rx);
+        let (l, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        l.send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        // a pit a cell deep three metres ahead, a cell of lava in it
+        let c = &s.clients[0];
+        let d = (c.phys.pos + c.phys.fwd * 3.0 - s.world.bodies[0].centre).normalize();
+        let top = s.world.air_over_ground(0, d);
+        let pit = Block { pos: top.pos - glam::IVec3::Z, ..top };
+        s.world.set_block(pit, AIR);
+        s.world.regap(pit);
+        {
+            let engine::world::World { bodies, edits, water, sky, time, .. } = &mut s.world;
+            let g = engine::world::Solid::at(bodies, edits, sky, *time);
+            assert!(water.pour_kind(&g, engine::world::World::col(pit), pit.pos.z, engine::liquid::U, engine::fluids::FLUIDS.now().kind("lava").unwrap()));
+        }
+        drain(&l);
+        l.send(ToServer::Chat("/spawn hare live".into()));
+        s.tick();
+        let said = chats(&drain(&l));
+        if gen < HOT_GROUND {
+            assert!(said.iter().any(|t| t.starts_with("a hare (animal")), "generation {gen}: {said:?}");
+        } else {
+            assert!(said.iter().any(|t| t.contains("lava")) && !said.iter().any(|t| t.contains("(water)")), "generation {gen}: {said:?}");
+        }
+    }
+}

@@ -224,6 +224,7 @@ impl Herds {
         let sun = world.sky.sun_dir(world.time);
         let centre = world.bodies[0].centre;
         let mut stepped = 0;
+        let mut dead: Vec<u32> = Vec::new();
         let seed = self.seed as u64;
         // over the cap, each tick starts at another awake site, so none is left out for good
         let awake: Vec<Site> = self.sites.iter().filter(|(_, h)| tick.saturating_sub(h.near) <= SLEEP_TICKS && !h.animals.is_empty()).map(|(s, _)| *s).collect();
@@ -236,10 +237,17 @@ impl Herds {
                 }
                 stepped += 1;
                 let kind = &self.kinds[a.kind as usize];
-                think(a, herd.home, players, sun, centre, seed, tick);
-                if dt > 0.0 {
+                if think(world, a, kind, herd.home, players, sun, centre, seed, tick) {
+                    dead.push(a.id);
+                } else if dt > 0.0 {
                     move_on(world, a, kind, dt, tick);
                 }
+            }
+            // gone: one that did not get off the hot ground in its time (`think`), and one whose body is in lava
+            // (looked at once a second)
+            if rule(world) && (!dead.is_empty() || tick % 20 == 0) {
+                herd.animals.retain(|a| !dead.contains(&a.id) && (tick % 20 != 0 || !world.lava_at(a.p.pos + phys::up(world, a.p.pos) * 0.3)));
+                dead.clear();
             }
         }
         self.awake = stepped;
@@ -247,10 +255,10 @@ impl Herds {
     }
 
     /// A real animal of `kind` standing at direction `d`, in the site it stands in (made first, so the seed's
-    /// herd is not made again on top of it). None on water or with no such kind.
+    /// herd is not made again on top of it). None on water, on hot ground (`hot`) or with no such kind.
     pub fn add(&mut self, world: &World, kind: &str, d: DVec3, fwd: DVec3, tick: u64) -> Option<u32> {
         let k = self.kinds.iter().position(|k| k.name == kind)? as u16;
-        let feet = stand(world, d)?;
+        let feet = stand(world, d).filter(|_| !hot(world, d))?;
         let b = &world.bodies[0];
         self.wake(world, feet, tick);
         let s = Herds::site_of(world, feet - b.centre);
@@ -338,9 +346,23 @@ fn stand(world: &World, d: DVec3) -> Option<DVec3> {
     Some(feet)
 }
 
-/// `stand`, where its body is clear too: not in a trunk or under a low crown beside the column (ADR 0100).
+/// Whether the world keeps the rule of hot ground (ADR 0205): from generation `HOT_GROUND`; an
+/// older world's herds step as they did, to the bit.
+fn rule(world: &World) -> bool {
+    world.bodies[0].gen >= crate::world::HOT_GROUND
+}
+
+/// Whether direction `d` on body 0 is no ground for an animal (ADR 0205, hot ground): lava on
+/// it, or a live volcano's hot ground (`Body::hot_ground`). Never in a world before `HOT_GROUND`.
+pub fn hot(world: &World, d: DVec3) -> bool {
+    let b = &world.bodies[0];
+    rule(world) && (b.hot_ground(d).is_some() || world.lava_at(b.centre + d * (b.layer_r(world.air_over_ground(0, d).pos.z as f64) + 0.12)))
+}
+
+/// `stand`, where an animal is made or found again: its body clear too, not in a trunk or under a low crown
+/// beside the column (ADR 0100), and not on hot ground (`hot`).
 fn stand_clear(world: &World, d: DVec3) -> Option<DVec3> {
-    stand(world, d).filter(|&feet| !phys::blocked(world, feet))
+    stand(world, d).filter(|&feet| !phys::blocked(world, feet) && !hot(world, d))
 }
 
 /// The ground's floor radius and the water's depth over it at direction `d`.
@@ -353,13 +375,16 @@ fn ground_at(world: &World, d: DVec3) -> (f64, f64) {
 }
 
 /// Whether walking `dir` from `a` is safe for `look` metres: no drop over 2.5 m, no rise over a block, no water
-/// over 0.7 m deep.
+/// over 0.7 m deep, no lava, and not onto a live volcano's hot ground (one already on it may walk it and takes
+/// any drop, to get off down the cone).
 pub fn safe(world: &World, feet: DVec3, dir: DVec3, look: f64) -> bool {
     let b = &world.bodies[0];
     let up = (feet - b.centre).normalize();
     let here = (feet - b.centre).dot(up);
-    let (floor, water) = ground_at(world, (feet + dir * look - b.centre).normalize());
-    here - floor <= 2.5 && floor - here <= 1.05 && water <= 0.7
+    let d = (feet + dir * look - b.centre).normalize();
+    let (floor, water) = ground_at(world, d);
+    let on_hot = b.hot_ground(up).is_some();
+    (here - floor <= 2.5 || on_hot) && floor - here <= 1.05 && water <= 0.7 && !(rule(world) && world.lava_at(b.centre + d * (floor + 0.05))) && (on_hot || b.hot_ground(d).is_none())
 }
 
 /// The heading `angle` radians about `up` from `fwd`.
@@ -367,9 +392,33 @@ fn turn(fwd: DVec3, up: DVec3, angle: f64) -> DVec3 {
     glam::DQuat::from_axis_angle(up, angle) * fwd
 }
 
-fn think(a: &mut Animal, home: DVec3, players: &[(DVec3, DVec3)], sun: DVec3, centre: DVec3, seed: u64, tick: u64) {
+/// The longest a scare's flight lasts, ticks (`think`: 80 + 0..=40).
+const SCARE_TICKS: u64 = 120;
+
+/// One animal's mind this tick. True when it is dead: it did not get off a volcano's hot ground in its time.
+fn think(world: &World, a: &mut Animal, kind: &Kind, home: DVec3, players: &[(DVec3, DVec3)], sun: DVec3, centre: DVec3, seed: u64, tick: u64) -> bool {
     let up = (a.p.pos - centre).normalize_or(DVec3::Z);
     let r = |k: u64| h64(&[seed, a.id as u64, tick, k]);
+    // on a live volcano's hot ground (the review of the volcano fixes): it is no survivor there. Before anything
+    // else it flees out from the crater, heading straight out again every 2 s (the look-ahead turns it round a
+    // wall in between), and has the time its run to the edge takes thrice over, and 2 s: still on it then (up a
+    // crater's wall there is no way out), it dies. Its mind stays Flee all the while.
+    if let Some(c) = world.bodies[0].hot_ground(up) {
+        let out = phys::tangent(up - c.top.normalize(), up, a.p.fwd);
+        if a.mind != Mind::Flee {
+            let left = (crate::world::BARE * c.v.crater as f64) - (up - c.top.normalize()).length() * c.top.length();
+            (a.mind, a.go, a.until) = (Mind::Flee, out, tick + 40 + (3.0 * crate::net::TICK_HZ * left.max(0.0) / kind.run.max(0.1)) as u64);
+        } else if tick >= a.until {
+            return true;
+        } else if (tick + a.id as u64) % 40 == 0 {
+            a.go = out;
+        }
+        return false;
+    }
+    // off the hot ground with that time still running (longer than any scare's): it runs on 2 s, no more
+    if rule(world) && a.mind == Mind::Flee && a.until > tick + SCARE_TICKS {
+        a.until = tick + 40;
+    }
     // a player coming at it: flee, away from them
     for (feet, vel) in players {
         let rel = a.p.pos - *feet;
@@ -380,16 +429,16 @@ fn think(a: &mut Animal, home: DVec3, players: &[(DVec3, DVec3)], sun: DVec3, ce
                 a.until = tick + 80 + r(1) % 41;
             }
             a.mind = Mind::Flee;
-            return;
+            return false;
         }
     }
     if a.mind == Mind::Flee && tick < a.until {
-        return;
+        return false;
     }
     let night = sun.dot(up) < -0.05;
     if night {
         a.mind = Mind::Sleep;
-        return;
+        return false;
     }
     if a.mind == Mind::Sleep || tick >= a.until {
         let roll = r(2) % 10;
@@ -415,6 +464,7 @@ fn think(a: &mut Animal, home: DVec3, players: &[(DVec3, DVec3)], sun: DVec3, ce
     if r(5) % 600 == 0 {
         a.call = a.call.wrapping_add(1);
     }
+    false
 }
 
 fn move_on(world: &World, a: &mut Animal, kind: &Kind, dt: f64, tick: u64) {
@@ -456,8 +506,10 @@ fn move_on(world: &World, a: &mut Animal, kind: &Kind, dt: f64, tick: u64) {
             if !safe(world, a.p.pos, a.go, look) {
                 a.go = -turn(a.go, up, -side * std::f64::consts::FRAC_PI_2);
                 if !safe(world, a.p.pos, a.go, look) {
-                    // boxed in: it stands
-                    (a.mind, a.until) = (Mind::Stand, tick + 40);
+                    // boxed in: it stands (on a volcano's hot ground its flight's time runs on: `think`)
+                    if world.bodies[0].hot_ground(up).is_none() {
+                        (a.mind, a.until) = (Mind::Stand, tick + 40);
+                    }
                     return;
                 }
             }
@@ -800,6 +852,171 @@ mod tests {
             let a = &herd.animals[0];
             let d = (a.p.pos - b.centre).normalize();
             println!("{} x{} at={:.5},{:.5},{:.5} {:.0} m from the spawn", h.kinds[a.kind as usize].name, herd.animals.len(), d.x, d.y, d.z, (a.p.pos - p).length());
+        }
+    }
+
+    /// A live volcano on the small planet, noon there.
+    fn volcano() -> (World, crate::world::Crater) {
+        let (seed, map) = crate::bake::volcano::tests::live_seed();
+        let mut w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, crate::world::HOT_GROUND);
+        let c = w.bodies[0].craters().iter().find(|c| c.lake.is_some()).expect("a live crater with a lake").clone();
+        // noon over the crater: the first quarter hour of the day the sun stands highest there
+        w.time = (0..96).map(|k| k as f64 * 1800.0 / 96.0).max_by(|a, b| w.sky.sun_dir(*a).dot(c.top).total_cmp(&w.sky.sun_dir(*b).dot(c.top))).unwrap();
+        (w, c)
+    }
+    /// The direction `k` crater radii out from the crater's middle, along its face's i.
+    fn out(w: &World, c: &crate::world::Crater, k: f64) -> DVec3 {
+        w.bodies[0].dir(c.face as usize, c.at.0 + k * c.v.crater as f64, c.at.1)
+    }
+
+    /// Bug 2026-11-24_18-45-16 (hares in the volcano): no animal is made on a live volcano's hot ground (its crater
+    /// and its bare cone), none walks onto it, and far from it nothing changes.
+    #[test]
+    fn no_animal_is_made_on_a_live_volcanos_hot_ground_or_walks_onto_it() {
+        let (w, c) = volcano();
+        let b = &w.bodies[0];
+        assert!(b.hot_ground(b.spawn).is_none() && b.hot_ground(out(&w, &c, 30.0)).is_none(), "the land far from it is not hot");
+        let mut h = compiled(1);
+        for k in [0.0, 0.5, 1.0, 1.5] {
+            assert!(b.hot_ground(out(&w, &c, k)).is_some(), "{k} crater radii out is hot ground");
+            assert_eq!(h.add(&w, "hare", out(&w, &c, k), DVec3::X, 0), None, "a hare made {k} crater radii out");
+        }
+        // every herd the seed makes round the cone stands off the hot ground
+        for (x, y) in (-6..=6).flat_map(|x| (-6..=6).map(move |y| (x, y))) {
+            let d = b.dir(c.face as usize, c.at.0 + x as f64 * 48.0, c.at.1 + y as f64 * 48.0);
+            h.wake(&w, b.centre + d * b.height(d), 0);
+        }
+        let on_hot = |h: &Herds| h.all().filter(|a| b.hot_ground((a.p.pos - b.centre).normalize()).is_some()).count();
+        assert_eq!(on_hot(&h), 0, "made on hot ground, of {}", h.all().count());
+        // the first cool ground out from the middle, and a look from there back in
+        let edge = (10..400).map(|k| k as f64 * 0.1).find(|&k| b.hot_ground(out(&w, &c, k)).is_none()).expect("the hot ground ends");
+        let feet = stand(&w, out(&w, &c, edge + 1.5 / c.v.crater as f64)).expect("cool ground to stand on");
+        let up = phys::up(&w, feet);
+        let inward = phys::tangent(b.centre + c.top - feet, up, DVec3::X);
+        assert!(!safe(&w, feet, inward, 3.0), "walking onto the hot ground is not safe");
+    }
+
+    /// Bug 2026-11-24_18-45-16: an animal that is on the hot ground (an old save's, or the ground grew hot under it)
+    /// runs from the crater until it is off it; one in the lava is gone.
+    #[test]
+    fn an_animal_on_hot_ground_flees_outward_and_one_in_lava_dies() {
+        let (w, c) = volcano();
+        let b = &w.bodies[0];
+        let mut h = compiled(1);
+        let edge = (10..400).map(|k| k as f64 * 0.1).find(|&k| b.hot_ground(out(&w, &c, k)).is_none()).expect("the hot ground ends");
+        // a site made by a player far over the cone, then a hare set on the hot ground by hand and one in the lake
+        let watcher = b.centre + out(&w, &c, edge) * (b.height(out(&w, &c, edge)) + 60.0);
+        h.tick(&w, &[(watcher, DVec3::ZERO)], 0, 0.0);
+        h.sites.values_mut().for_each(|s| s.animals.clear());
+        let hare = h.kinds.iter().position(|k| k.name == "hare").unwrap() as u16;
+        let mut put = |h: &mut Herds, d: DVec3, r: f64, id: u32| {
+            let feet = b.centre + d * r;
+            let s = Herds::site_of(&w, d);
+            h.sites.entry(s).or_insert(Herd { home: feet, animals: Vec::new(), near: 0 }).animals.push(Animal { id, kind: hare, p: Player::at(feet, DVec3::X), mind: Mind::Stand, until: 10_000, go: DVec3::X, call: 0 });
+        };
+        // eight hares round the cone, 4 columns inside the hot ground's edge (ids 10 to 17), and one in the lake (2)
+        let ground = |d: DVec3| b.layer_r(w.air_over_ground(0, d).pos.z as f64) + 0.02;
+        let reach = edge * c.v.crater as f64 - 4.0;
+        for k in 0..8 {
+            let az = k as f64 * std::f64::consts::TAU / 8.0;
+            let d = b.dir(c.face as usize, c.at.0 + reach * az.cos(), c.at.1 + reach * az.sin());
+            assert!(b.hot_ground(d).is_some());
+            put(&mut h, d, ground(d), 10 + k);
+        }
+        let (i, j) = c.lake_cols[c.lake_cols.len() / 2];
+        let lake = b.dir(c.face as usize, i as f64 + 0.5, j as f64 + 0.5);
+        put(&mut h, lake, b.layer_r(c.lake.unwrap() as f64 - 1.5), 2);
+        assert!(w.lava_at(b.centre + lake * b.layer_r(c.lake.unwrap() as f64 - 1.2)), "the second hare is in the lake");
+        let mut fled = std::collections::BTreeSet::new();
+        for t in 1..600 {
+            h.sites.values_mut().for_each(|s| s.near = t);
+            h.tick(&w, &[], t, 0.05);
+            fled.extend(h.all().filter(|a| a.mind == Mind::Flee).map(|a| a.id));
+        }
+        // (a notch in the cone's blocks can hold one: most get off in half a minute)
+        let off = h.all().filter(|a| a.id >= 10 && b.hot_ground((a.p.pos - b.centre).normalize()).is_none()).count();
+        assert!((10..18).all(|id| fled.contains(&id)) && off >= 6, "they ran off the hot ground: {off} of 8, fled {fled:?}");
+        assert!(h.all().all(|a| a.id != 2), "the hare in the lava is gone");
+    }
+
+    /// The review of the volcano fixes: hot ground is a rule of generation `HOT_GROUND`. A world of the generation
+    /// before it keeps its herds as they were: an animal is made on the cone, and walks onto it and through lava.
+    #[test]
+    fn a_world_before_hot_ground_keeps_its_herds_on_the_cone() {
+        let (seed, map) = crate::bake::volcano::tests::live_seed();
+        let w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, crate::world::HOT_GROUND - 1);
+        let b = &w.bodies[0];
+        let c = b.craters().iter().find(|c| c.lake.is_some()).expect("a live crater with a lake").clone();
+        let rim = out(&w, &c, 1.2);
+        assert!(b.hot_ground(rim).is_none() && !hot(&w, rim), "no hot ground before the generation");
+        assert!(compiled(1).add(&w, "hare", rim, DVec3::X, 0).is_some(), "a hare made on the cone, as before");
+    }
+
+    /// The review of the volcano fixes: the developer's own case, hares inside the crater's bowl, where out is up a
+    /// wall. Every one is off the hot ground within the time its run to the edge takes thrice over and 2 s, fled
+    /// or dead; none circles the lake for good, and none flips its mind from tick to tick.
+    #[test]
+    fn hares_in_the_crater_bowl_leave_the_hot_ground_or_die_and_none_flips() {
+        let (w, c) = volcano();
+        let b = &w.bodies[0];
+        let mut h = compiled(1);
+        let watcher = b.centre + c.top + c.top.normalize() * 80.0;
+        h.tick(&w, &[(watcher, DVec3::ZERO)], 0, 0.0);
+        h.sites.values_mut().for_each(|s| s.animals.clear());
+        let hare = h.kinds.iter().position(|k| k.name == "hare").unwrap() as u16;
+        let mut n = 0;
+        for k in 0..16 {
+            let az = k as f64 * std::f64::consts::TAU / 16.0;
+            let d = out_at(&w, &c, 0.9, az);
+            let Some(feet) = stand(&w, d) else { continue };
+            if w.lava_at(feet + phys::up(&w, feet) * 0.3) {
+                continue;
+            }
+            assert!(b.hot_ground(d).is_some());
+            let s = Herds::site_of(&w, d);
+            h.sites.entry(s).or_insert(Herd { home: feet, animals: Vec::new(), near: 0 }).animals.push(Animal { id: 10 + k, kind: hare, p: Player::at(feet, DVec3::X), mind: Mind::Stand, until: 10_000, go: DVec3::X, call: 0 });
+            n += 1;
+        }
+        assert!(n >= 6, "hares beside the lake: {n}");
+        let mut minds: BTreeMap<u32, (Mind, u32)> = BTreeMap::new();
+        // the longest time given: from the middle, 2 crater radii at a hare's run, thrice, and 2 s; and a second more
+        let bound = 60 + (60.0 * 2.0 * c.v.crater as f64 / h.kinds[hare as usize].run) as u64;
+        for t in 1..=bound {
+            h.sites.values_mut().for_each(|s| s.near = t);
+            h.tick(&w, &[], t, 0.05);
+            // (its mind's changes while it is on the hot ground: the one to Flee and no more)
+            for a in h.all().filter(|a| b.hot_ground((a.p.pos - b.centre).normalize()).is_some()) {
+                let e = minds.entry(a.id).or_insert((a.mind, 0));
+                if e.0 != a.mind {
+                    *e = (a.mind, e.1 + 1);
+                }
+            }
+        }
+        let left: Vec<u32> = h.all().filter(|a| b.hot_ground((a.p.pos - b.centre).normalize()).is_some()).map(|a| a.id).collect();
+        assert_eq!(left, Vec::<u32>::new(), "still on the hot ground after {bound} ticks, of {n}");
+        assert!(minds.values().all(|m| m.1 <= 1), "a mind that flips on the hot ground: {minds:?}");
+        assert!(h.all().count() < n, "some died in the bowl: {} of {n} live", h.all().count());
+    }
+
+    /// The direction `k` crater radii (metres on the ground) from the crater's middle, at azimuth `az` round it.
+    fn out_at(w: &World, c: &crate::world::Crater, k: f64, az: f64) -> DVec3 {
+        let _ = w;
+        let up = c.top.normalize();
+        let (e1, e2) = (up.any_orthonormal_vector(), up.cross(up.any_orthonormal_vector()));
+        (up + (e1 * az.cos() + e2 * az.sin()) * (k * c.v.crater as f64 / c.top.length())).normalize()
+    }
+
+    /// The review of the volcano fixes: hot ground is measured in metres round the crater's middle, not in columns
+    /// of its face (on the conformal grid a column is not a metre, and a cone can lie over a face's seam): 1.9
+    /// crater radii out is hot all the way round, 2.1 is not.
+    #[test]
+    fn hot_ground_is_two_crater_radii_in_metres_all_the_way_round() {
+        let (w, c) = volcano();
+        let b = &w.bodies[0];
+        for k in 0..16 {
+            let az = k as f64 * std::f64::consts::TAU / 16.0;
+            assert!(b.hot_ground(out_at(&w, &c, 1.9, az)).is_some(), "1.9 radii out at azimuth {k}");
+            assert!(b.hot_ground(out_at(&w, &c, 2.1, az)).is_none(), "2.1 radii out at azimuth {k}");
         }
     }
 }

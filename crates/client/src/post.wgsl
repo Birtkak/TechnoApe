@@ -15,7 +15,7 @@ struct Post {
     air: vec4f,    // rgb the air's colour at the horizon; w how fast the ground fades into it, per metre
     amb: vec4f,    // x how much stronger the bounce light is drawn (the sky's light in the shadows: it
                    // reaches only where the bounce rays did, so a cave stays dark); y the fog per metre with
-                   // the camera under water, 0 above, and z the light down there (ADR 0071); w the body the
+                   // the camera under water, 0 above, negative inside lava, and z the light down there (ADR 0071); w the body the
                    // camera is on, whose ground alone fades into the air
     // the clouds (ADR 0076, clouds.wgsl): the planet's centre from the camera (w its sea's radius, 0 for no
     // clouds), its frame in the camera's (columns), the sun's direction (w the daylight at the camera), its
@@ -320,10 +320,15 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
         // too; the air's own grid (W3) will know where air is lit
         c = mix(c, u.air.rgb, 1.0 - exp(-gb.w * u.air.w));
     }
-    if (u.amb.y > 0.0) {
+    if (u.amb.y != 0.0) {
         // under water (ADR 0071): the light dims and turns blue with distance; past what is drawn, the fog
         let d = select(1e4, gb.w, gb.w > 0.0);
-        c = mix(c * vec3f(0.55, 0.8, 0.9), WATER_FOG * u.amb.z, 1.0 - exp(-d * u.amb.y));
+        if (u.amb.y < 0.0) {
+            // inside lava (a negative fog, frame.rs): its own glow close around the eye, nothing through it
+            c = mix(c, vec3f(2.2, 0.72, 0.06), 1.0 - exp(d * u.amb.y));
+        } else {
+            c = mix(c * vec3f(0.55, 0.8, 0.9), WATER_FOG * u.amb.z, 1.0 - exp(-d * u.amb.y));
+        }
     }
     c = shoulder(c);
     // the settings' brightness: a curve over the finished picture, 1 leaves it as it is

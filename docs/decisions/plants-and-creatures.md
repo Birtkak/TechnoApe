@@ -432,6 +432,32 @@ kept as a delta, and not ticked when nobody is near. Design: `docs/design/creatu
   the speeds and shares and keeps the animals alive; a creature row may not be removed, renamed or moved [0134,
   amends 0083's "compiled in"].
 - **Home world only**: herds belong to the body with `home = true` [0163].
+- **Hot ground** [0205, 2026-11-25; bug reports 2026-11-24_18-45-16 and 18-46-31; the review's answers in]: a
+  live volcano's hot ground is its crater and its bare upper cone: within 2 crater radii (`volcano::BARE`) of its
+  middle, in metres on the ground by direction (`Body::hot_ground`), so the same on the conformal grid and over a
+  face's seam.
+  - **From generation 14** (`world::HOT_GROUND`, the overseer's call): the rule changes which animals the seed
+    makes and where they walk, which is hashed state, so a world of an earlier generation keeps its herds as they
+    were, to the bit, and its recordings replay. The developer's world of 2026-11-24 is such a world: its hares
+    stay on the cone. (`GENERATION` reaches 14 with the branch that brings it; until then no new world has the rule.)
+  - No animal is made there, drifts there or is put there by `/spawn <creature> live` (`herds::hot` refuses it,
+    and lava anywhere; the command says "no ground for an animal there (lava, or a live volcano's hot ground)").
+    The look-ahead turns an animal from it and from lava as from deep water.
+  - **An animal on hot ground is no survivor** (the overseer's call): it flees out from the crater at its run
+    speed, before any other thought, heading straight out again every 2 s; the look-ahead turns it round walls
+    in between and it takes any drop down the cone. It has the time its run to the edge takes thrice over, and
+    2 s (a scared one that ends on it: what is left of its scare). Still on the hot ground then, as in a crater's
+    bowl, where out is up a wall, it dies: removed from its herd, in the hashed state. Its mind is Flee all the
+    while (boxed in, it does not stand). Off the hot ground it runs on 2 s. One whose body is in lava is removed
+    (looked at once a second).
+  - Rain and snow (the client's `weather::Fall::drops`, `World::boils_rain`; drawn only, every generation): no
+    drop is made over a live crater's lake, however high, nor where it would land in lava poured anywhere: it
+    boils off in the hot air over it. The lake by the lava that is there now at its surface's level in the drop's
+    column, so a part built over or drained has rain again.
+  Alternatives rejected: the rock's own heat at the surface as the rule (over 100 C five crater radii out on the
+  small planet, where trees stand and the air is cool: the heat field does not take the surface as a boundary yet).
+  Open: both follow the heat field once it does, as `BARE` itself. Plants' bare cone (`Body::bare_cone`) is still
+  measured in columns of the crater's face, on that face only: left, since changing it moves plants in worlds made.
 
 ## Open
 
