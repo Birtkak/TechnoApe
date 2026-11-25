@@ -97,7 +97,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `run=stand|fly|orbit|edit|sim|fx` (`fx` keeps `fx_n=` particles alive, ADR 0031), `quick=1` (quarter length, a smoke check in seconds), `planet=6144|12288|768`
   (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
-- A new world's planet is baked (ADR 0043, 0060: about 64 s for the 4 km planet on the `play` build, ADR 0204, once per seed and planet; kept in
+- A new world's planet is baked (ADR 0043, 0060: about 49 s for the 4 km planet and 169 s for the 8 km one on the `play` build, 2026-11-25, once per seed and planet; kept in
   `saves/bakes/`); `World::new` is the old noise land (tests, saves from before the bake), `World::baked` the map.
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.

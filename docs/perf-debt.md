@@ -81,6 +81,11 @@ under it, the walk at detail 8 in flight (4.1 ms a frame).
 Work too big for a pass of small fixes, noted so a later session knows where the time is and what was already
 tried. Newest first; strike a line out when it is done.
 
+- **The bake by stage after the 2026-11-25 batch** (`play` build, seed 1337, generation 15, the PC to itself,
+  `BAKE_LAPS=1 technoape-server report=1`): the 4 km planet 49.1 s (erosion 3.8 coarse and 9.8 fine, climate
+  21.3, ground water 11.2 in 950 sweeps); the 8 km planet 168.9 s (erosion 17.5 and 49.4, climate 83.0, ground
+  water 4.8 in 250 sweeps). The 8 km planet was 339.8 s the same morning (erosion 54 and 108, climate 155), but
+  that run shared the PC with a test run, so the climate's half is mostly that and not a saving.
 - **The bake's erosion, what is left (2026-11-25).** `bake/land.rs::erode` calls `drain` every step (320 coarse,
   48 fine). After the flood that queues only pouring cells and the union-find components (same result to the
   bit), the 4 km planet's fine steps spend, of about 15 s: flood 5.9, basins 2.1, the copies/coast/masses 1.6,
