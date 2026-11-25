@@ -128,12 +128,50 @@ surface follows the pace, about a minute a block of dry wood in still air (the s
 `HEAT_PACE` 6); a block's burn-out is decided when fire is built and must stay longer than the spread.
 
 ### Ground water: a table, flooded caves, springs [0190, 2026-11-23]
-The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`), not built yet (roadmap,
-the world queue's step 6): the water table is the rest state of Darcy flow, baked per 8 m map cell and counted
-per cell where touched (a well or cave trades with its cell by a well index). **The whole ground-water clock
-runs at the calendar's pace** (ADR 0187's factor: it is rain-driven and cannot be sped up in part). **Caves
-below the table are flooded.** **Springs start visible streams.** About 29 s more bake a new world is accepted
-and goes to `docs/perf-debt.md` when built. New worlds only; old worlds stay dry.
+The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`): the water table is the rest
+state of Darcy flow, baked and counted per 8 m map cell where touched (a well or cave trades with its cell by a well
+index). **The whole ground-water clock runs at the calendar's pace** (`Ground::calendar`, the real year over the sky's: it is
+rain-driven and cannot be sped up in part; ADR 0200 took heat off that factor, ground water keeps it). **Caves below
+the table are flooded.** **Springs start visible streams.** The bake's added time is accepted (`docs/perf-debt.md`).
+New worlds only (generation 12, map version 10); every older world generates and stays dry as it was.
+Built (2026-11-24), what holds:
+- **The table** (`bake::ground`): steady unconfined Dupuit flow, div(K b grad h) + R = 0 under the ground, the sea,
+  lakes and the bake's rivers as fixed heads, the ground as a ceiling. K and specific yield are rows of
+  `data/rocks.toml` (`[water]`: the rain's recharge share, the `tight` K under which a rock is an aquifer's floor);
+  the floor is the first tight layer under the ground, else the crust's bottom; tight rock at the ground has no
+  table. Recharge is the share of rain less evaporation (at least a tenth of the rain). A link's conductance is the
+  harmonic K times the mean thickness over the higher of its two floors (so each cell's balance has one root).
+  Solved by over-relaxed Gauss-Seidel (omega 1.9, halved toward 1 while the residual stops shrinking; each cell's
+  head by Newton in a bisection bracket; one thread, index order, deterministic) to a millimetre (`ground::TOL`), at
+  most 20,000 sweeps (`ground::SWEEPS`); a field not settled by then is kept, and the map records the sweeps and the
+  residual (`Map::solve`, `report=1`'s `ground_water.solve`). On **160 cells a face edge on every planet**, not the 8 m map cells: the 8 m solve on the 4 km planet ran 3 hours unsettled (its time goes as
+  the edge's fourth power). Each solve cell is the mean of the map cells under it, held at its lowest drain; the
+  table on the map cells is read back bilinearly (over a cube edge from the next face's cells, as the solve links
+  them) and never over their own ground. The map keeps it per 8 m cell.
+- **Springs**: a solve cell held at its ground seeps the recharge uphill of it; the flow goes to the lowest map
+  cell under it where the table meets the ground, else the lowest with an aquifer. A spring of a litre a second or
+  more (`ground::STREAM`) starts a stream down the drainage to a river, lake or the sea, laid as river reaches (water
+  in the world); one that runs off the drainage is not laid. The springs themselves are not kept (the map keeps the
+  table only), and their flow is the bake's rest state, not counted water: only the reaches they lay are in the
+  world, as generation's water.
+- **Flooded caves**: a cave whose floor lies under its column's table holds generation's water to it (a closed one
+  full under it, at the pressure that puts its head at the table; one open to the sky a pond at the table). It is
+  generation's water as the sea is: not counted until touched, then stored with the ledger unmoved. Drawn by its
+  own flat surface quads in level-0 chunks.
+- **Wells** (`Liquids::seep`, once a second on the server): a stored gap of water alone whose floor lies under its
+  column's table trades with its map cell by Peaceman's index, Q = 2 pi K b / ln(0.198 dx / r_w), r_w 0.198 m,
+  never past the cell's head. A dug hole under the table is stored dry and fills. A touched cell is counted in
+  micro-units (`SUB` = 65,536 a unit) and draws from its four neighbours by Darcy, an untouched one at rest, never
+  past equal heads (a fast rock's K would carry a pair past them in a step and swing); back
+  within 1/64 m of rest with nothing owed it is dropped. **The ledger**: `counted()` carries `ground_extra` (units
+  the aquifer took from stored water) and `ground_ledger()` (touched cells' water off rest and owed, less what the
+  rest gave them, `rim`, less `ground_extra`) is always 0. Saved and hashed with the server's water.
+- **`technoape-server report=1`** prints `ground_water`: the table's depth by province, the wettest and driest
+  quarters, the share of tight land, springs and their streams, the flooded caves, the depth at and round the spawn,
+  and how the solve ended (sweeps, residual, settled).
+- Shortcuts: one rock's K a column (the top one's, layers unfolded); a well's cell over the ground does not seep
+  (water poured into a well runs off at the rim); a touched cell trades with its four neighbours only; a layered
+  gap (oil on water) takes no part.
 
 ### Snow lies in thin layers that build and melt [0189, 2026-11-23]
 The developer: "have snow be smaller layers that build or melt over time", a slice of a block as in Minecraft,
@@ -143,6 +181,62 @@ ground under freezing and melts by the heat at the place (air, sun, a fire, lava
 constants, 2026-11-24); enough
 layers make a snow block, and deep old snow is where glaciers come from. Replaces the bake's fixed snow cover
 in new worlds once built (roadmap, the world queue's step 7).
+
+### Snow and ice in eighths: live columns near players, the formula elsewhere [0189 as built, 2026-11-24]
+ADR 0189 built (`crates/engine/src/snow.rs`, `liquid::phases`). **Store:** a column's layer is its units of water
+(U = 4096 a block) at a density of 125 kg/m^3: an eighth is 64 units (15.6 mm of water), a block of snow 512; it
+lies on the column's top solid (`floor`) and shows `units / 64` eighths, 1 to 7. Eight eighths set the existing
+`snow` block in the floor's cell where it is empty air no player stands in (a torch or a pair of feet keeps the layer at
+seven eighths, taking no more; its 512 units still the layer's, `packed`) and the next layer lies on it; melting
+down to a packed block takes it back. Only the server keeps it, and only where it differs from the formula: the
+**live set** is every column within 16 (`LIVE`) of a player's feet on body 0 (33 x 33 = 1089 a player); elsewhere the
+depth is the formula, the live air grid's lying snow (`Weather::snow`, mm of water a 128 m cell). Joining, a column
+takes the formula's whole units (under a block) from that cell's lying snow; leaving, it gives back its layer (a
+packed block stays a block, still lent). A column with water in its open gap (not a cave pool under it) holds
+none, and is live again the second the water is gone. **Counted water:** fall takes `rain` (mm/h, where the column's air is under 0 C) from the same
+cell's lying snow, then its soil; melt soaks into the cell's soil (not stored water: a layer melts to no puddle);
+sublimation goes to `vapour`. A forced weather (`/weather snow`, for filming) lays and melts the live columns'
+snow by its rain and temperature too; the grid and the water's heat stay the air's own. What a column takes or gives is booked `owed` to its air cell and settled at the
+weather's next landing (`Weather::tick_owing`); settled from its lying snow, then its soil, then the water outside the
+grid (the sea term: snow on a dry place, as a forced weather's, is the sea's vapour); what an air cell's columns take
+between landings stays under what it could give at the last one (`Weather::has`), so a debt is always paid. The water ledger adds held less lent and the air's ledger lent
+less owed, both 0 through fall, melt, sublimation, leaving and joining (`snow_tests.rs`). **Heat** (the two
+constants, no pace of its own): melt is h(T_air) (T_air - 0) / L_f a second (L_f a unit as the water's), with no sun,
+shade or ground term; under the triple point it sublimates as open ice does (`Phases::sublimation`, factored out of
+`thaw`). By hand: an eighth at +5 C in still air goes in 64 x 1631 / (87.8 x 5) = 238 s of play (real heat is 300
+times slower: 20 h); an hour of the grid's heavy snowfall (3 mm/h) lays 12.3 units, a fifth of an eighth, so the
+first eighth shows after 5.2 h (falling snow on the live grid is a matter of hours to an eighth). **Ice in eighths:**
+a water node under freezing air shows its freezing progress as ice eighths on its surface (the topmost a column) (`Liquids::ice_layers`,
+floor(frac / 512), at most 7, its units still water in the node) and eight become the ice block as before; so 0195's
+"less than a block never freezes" no longer holds: a third of a block freezes in eighths and melts back to exactly its
+units. Lava's crust is not shown in layers (it needs its own store; not a few lines). **The player:** feet in a
+layer sink to the ground under it and walk slower by `DRAG` = 0.5 of its depth (3 eighths: 0.81 of the pace); a
+packed block is solid and stood on; a dig of the cell over a layer takes the layer, its water soaking in, and gives no
+item; the look-at panel names "Snow" (or "Ice") and "N eighths deep, on <block>". **Wire:** `ToClient::Layers` (the
+last variant) carries the changed columns once a second, every shown one on join; an older client never gets it from
+an older server and a newer client joining an older server simply sees none. **Save:** a sixth tail after the crust,
+written only when something is held, lent, owed or fallen short of a unit (`Snow::bare`), so a world without snow
+writes the bytes it did and hashes as it did. A recording replays unchanged only for a world with no lying snow near a
+player: a column joining there takes the formula's units, which moves `lent` and the hash (the recordings under
+`tests/` replay as before). **Plants under snow** (the developer's call, 2026-11-24): snow builds over a plant as over
+open ground, to a full block and on, and the plant is there again when it melts or the block is dug (the dig takes
+the snow only), the same plant, kind and state. The plants in a floor's cell are clutter (`clutter.rs`, drawn only on
+a column with no edit), so a block packed in a cell that held no edit remembers it (`packed`'s flag, in the snow tail)
+and, when it goes, the cell's edit is taken away (`World::put_edit(b, None)`) rather than set to air, and the clients
+are told so by `ToClient::Unedit` (the last variant) after the tick's edits: the plant is drawn again, hidden while a
+block covers it and showing through a layer short of one. A cell with an edit (a cut plant's air) gets it back. **Drawing:** a slab of the
+layer's height through the fx particle pipeline (Look::Block, the layer's block texture, z scaled), the 48 nearest,
+rebuilt when a change arrives or the player moves 8 m; no remesh. Per second the server looks at the live columns
+(a `here` per column: the weather at its air cell) and steps each; work is a few hundred nanoseconds a column.
+Alternatives rejected: layers as blocks with a height (a block id per eighth: 8 rows a material, and the mesher's
+cube faces); snow as stored fluid (`Liquids` is a gap fluid that flows; snow stays put); a live set as large as the
+streamed view (the per-second work would grow with the view, not the players).
+Shortcuts named in the code: the face edge cuts the live set (columns over a cube-face seam are not live); fall is judged by the column's air but taken from the cell's lying snow
+then its soil; no sun, shade, wind or slope; the join is capped under a block (a deep formula drift shows as 7
+eighths); partial ice is not walked on; slabs are not in the ray-traced scene; a block of
+snow over a placed non-solid block or a player is not packed (seven eighths);
+a dig takes a whole layer at once.
+Open: the formula's own snow (the bake's fixed cover) stays as it is until the formula follows the live grid.
 
 ### Fluids are rows; lava, with no mixing [0186, 2026-11-23]
 `data/fluids.toml` (`crates/engine/src/fluids.rs`, built in): a row a fluid, its place its kind (row 0 water,
@@ -349,8 +443,8 @@ different fluids, the denser keeps the gap".
   ice block's melt so far is not saved (a reload starts it again, its units kept; every ice edit and its neighbours
   are followed again on load). No version moves; a world where water neither froze nor boiled writes the very bytes
   it did, and its water steps to the bit as before (a hashed trace). Clients see the ice through the edits.
-- **Shortcuts named in the code:** a block of ice is U units (real ice 1.09 blocks); less than a block of water never
-  freezes (until partial layers, ADR 0189), and in no air what is short of a block boils at once; stored sea does not
+- **Shortcuts named in the code:** a block of ice is U units (real ice 1.09 blocks); less than a block of water froze
+  unseen until ADR 0189's "Snow and ice in eighths" (now it shows in eighths), and in no air what is short of a block boils at once; stored sea does not
   freeze (until ice by physics); water under a cave's roof or under another layer takes no part; the water under ice
   is one temperature; no heat between columns or layers; water's heat is not mixed as it flows; water beside an ice
   block gives it no heat; ice under freezing air keeps; Earth's air on every body; every stored water node is looked at
@@ -706,8 +800,8 @@ Open: the developer's look at it in play; from orbit at small windows the cells'
 ## The globe map (`crates/client/src/globe.rs`) [0077]
 
 - **Opening.** M (rebindable, "Globe map", Keys page) opens `Menu::Globe`: an orthographic globe, north up; a drag
-  turns it, the wheel zooms 1 to 64 times. A click drops a waypoint on the ground there, a click on a waypoint opens
-  its page, a right click removes it. Buttons: Terra, Luna, Back. Latitude and longitude under the pointer use
+  turns it, the wheel zooms 1 to 64 times (and out past 1 to the system, ADR 0201 below). A click drops a waypoint on the
+  ground there, a click on a waypoint opens its page, a right click removes it. Buttons: every body, then Back. Latitude and longitude under the pointer use
   `nav::geo_text`. Holding M does not flicker it (key repeat does not reach the menu's close).
 - **Picture.** The bake's map at mip 0, resampled once on a worker into latitude-longitude RGBA8 (Terra 1024 x 512,
   Luna 512 x 256): biome colours, sea by depth, lakes, every river cell, hillshade from the NW (ice cells in the ice
@@ -728,7 +822,65 @@ Open: the developer's look at it in play; from orbit at small windows the cells'
   (white, named, shown everywhere), waypoints (icon, colour).
 - **Server.** The player list goes out once a second as well as on joins and leaves, so positions are current (about
   150 KB/s at 50 bots; kept) (also multiplayer-saves-and-data).
-- Edits do not show (a texel is 24 m); a "what you built" layer is for later.
+- Edits show from the zoom where a block is a UI pixel (ADR 0201 below); the picture itself stays the bake's.
+
+### The map zooms out to the system; building and digging show on it [0201, 2026-11-24]
+The developer's calls (2026-11-24): "make the map a world and universe thing, almost like KSP: see all the planets
+and moons, zoom in for more detail, add our new bodies"; "keep the buttons to quickly go to a planet"; "the map
+didn't update when you build or mine", "add it so the server holds them".
+- **One zoom.** The wheel runs on past the whole globe (zoom 1) down to the least zoom, where everything is within 45 %
+  of the screen's height of the focused body (`globe::least`). Under 1 the map is the system, looked down on from
+  the ecliptic's north, the focused body in the middle at the same pixels a metre as its globe, so nothing jumps.
+  M opens it as before: on the player's body, at zoom 1.
+- **The system.** Every body of the world's rows and the sun where `World::pose` (the sky's own) has them now, every
+  frame the map is open; each a ball in its row's `colour` (glyph 201), at least 4 px across (`MIN_PX`). Each orbit
+  is 257 points of the same poses over one period, relative to its parent, made every frame the system shows with
+  the body's phase now in the middle and the phase stepped by the cube of an even step (so the points crowd round
+  the body: the line runs through it and follows its path within a pixel over a screen round it at any zoom its
+  disc shows at, where 256 even points left the chord 1.8 Terra radii off the path), drawn round the parent where
+  it is now, each segment clipped to the screen (one crossing it with both ends off it shows), as 2 px dots a dot
+  apart, 12000 at most; a moon's under 8 px is left out. Every name shows; a name whose box would lie on an earlier
+  one joins its label ("Terra, Luna"). A click on a body focuses it at the same pixels a metre; on the focused
+  body's disc once its marks show (40 px in radius) it is a click on its globe (a waypoint), and focusing the
+  focused body never turns it back; the player is a ring, others white dots, at their inertial places.
+- **Any body's globe.** Every row with a bake has a picture and a seen-mask (a planet's 1024 x 512, a smaller
+  body's 512 x 256; Mars and Callisto too), made on a worker of its own once its body's map is in (a body loaded on
+  approach when it is, or, focused before that, from its bake of the world's hash alone on the worker, with
+  "drawing the map..." meanwhile); the head names the focused one's place, so the shader reads any. A body with no
+  picture (a gas body) is a plain ball in its colour. The buffer is 5.4 MB (was 2.7). `<save>.seen`
+  holds the masks one after another in row order, so a file from before reads as it did.
+- **Buttons.** One per body, a moon indented under its planet (`globe::order`), then Back; each goes to its
+  body's globe at zoom 1 from any zoom. `acts=`: `globe:zoomto:<z>` (0 the whole system), `globe:focus:<body>`.
+- **Edits.** The server already holds every edit (its save) and sends all of them to every client on join and as
+  they happen, so the client has the world's edits wherever they are; the map takes them from there and needs no
+  message of its own. Each edited column is worked out again on the frame thread, 64 a frame at most (its top
+  block from the touched layer down, how far over or under the generated ground; over the ground only an edited
+  cell counts, so a trunk left of a felled tree is no build): drawn in its block's colour,
+  brighter the higher built (to 1.6), darker the deeper dug (to 0.3), from 1 px a metre (zoom 9 on Terra at a 1080
+  screen), a block at least 3 px wide; survival's only on charted land. The columns are kept in tiles of 64 x 64,
+  and a frame draws only those of the tiles the screen's ground falls in (a 16 x 16 grid of points and the rim
+  picked on the globe), 8000 at most, so a save's 100k edited columns cost the screen's share, not a walk of all.
+  An edit on a body not loaded on the client waits and is worked out when the body loads.
+- **Players** (the developer, 2026-11-24: "also add player(s) locations"). `ToClient::Players` already lists every
+  player with where they are, once a second and on each join and leave, so no message was added. On a globe each
+  player on it is a white named mark (you the ring with its tail); in the system each body with players has a mark
+  under its ball naming them (more than three: "N players"), one out in space a dot; a button shows its body's count
+  ("Terra (2)"). One who left is gone with the next list.
+- **Relief** (the developer, 2026-11-24: "make the globes have depth, a small version of the real planet"). The
+  picture's top byte is the ground's height (1 the body's lowest, 255 its highest; the sea a level surface), made by
+  the same worker; the globe's ground stands out by the body's heights over its radius (`RELIEF` 1.0), at most a
+  share of the radius by body (`relief_max`, the taste knob: Terra 6 % and Luna 5 % (2.5 % read as a painted ball), Mars and the rest 2.5 %; 8 % read as a potato on Mars's
+  dichotomy). The shader follows each pixel block's ray into that ground (two steps a texel of the chord, 8 to 192,
+  so a one-texel ridge at the limb is never stepped over; then 6 halvings), so a range shows at the limb; lit by the sun where it
+  really is on that body (a soft terminator, the slopes steepened three times for the light, over the picture's own
+  shade from the north-west), the night a dim blue floor, a rim of sky on a body with air. Marks sit on that ground
+  (`State::lift`), and a click is found on it by the same march (`State::pick`), so a mark drawn near the limb is
+  hit where it is drawn and the charted check reads the texel under the pointer. No mesh: the ray march needs none and keeps the globe one UI rectangle as before.
+Alternatives rejected: a summary of edited cells kept and sent by the server (asked for, then not built: it would
+repeat what `Edits` already sends every client); a 3D tilted camera (the top-down view reads at once); a displaced
+sphere mesh in a pass of its own (a new pipeline for what one rectangle's ray march does).
+Open: Jupiter's bands on its ball; a lazy body whose bake of the world's hash cannot be made keeps "drawing the
+map..." on its globe.
 
 ## No longer holds
 

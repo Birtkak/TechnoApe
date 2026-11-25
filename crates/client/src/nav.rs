@@ -151,56 +151,99 @@ pub fn text(list: &[Waypoint]) -> String {
         .collect()
 }
 
-/// The next moment from `from` on when Luna's shadow falls on Terra with its middle on the ground (`lunar`
-/// false), or Luna is wholly in Terra's shadow (true): the closest line-up of the three, searched forward in
-/// the sky's own functions over one whole cycle of it (bugs/2026-11-11_13-12-42). None when there is none.
-pub fn next_eclipse(sky: &engine::sky::Sky, from: f64, lunar: bool) -> Option<f64> {
-    // how far Luna's centre is off the line from Sol through Terra, on the near side (the far side for lunar)
-    let off = |t: f64| {
-        let p = sky.planet(t).centre;
-        let s = (sky.sun(t) - p).normalize();
-        let m = sky.moon(t).centre - p;
-        let along = m.dot(s);
-        if (along > 0.0) != lunar { (m - s * along).length() } else { f64::MAX }
-    };
-    let near = if lunar { sky.planet_radius - 2.0 * sky.moon_radius } else { 0.8 * sky.planet_radius };
-    // Luna moves some 80 m/s at 60 radii out (ADR 0041), so a 10 s step (under a kilometre) cannot jump past a
-    // line-up; a whole cycle is then some 50,000 looks, a few milliseconds
-    const STEP: f64 = 10.0;
-    // (`closing`: Luna was seen coming nearer the line, so a search begun just past one eclipse's middle
-    // finds the next one)
-    let (mut t, mut prev, mut closing) = (from, off(from), false);
-    while t < from + engine::sky::PERIOD + 4000.0 {
-        let next = off(t + STEP);
-        closing |= next < prev;
-        if closing && prev < near && next >= prev {
-            // the closest moment lies within a step either side: narrow it down
-            let (mut a, mut b) = ((t - STEP).max(from), t + STEP);
-            for _ in 0..60 {
-                let (x, y) = (a + (b - a) / 3.0, b - (b - a) / 3.0);
-                if off(x) < off(y) { b = y } else { a = x }
-            }
-            return Some((a + b) / 2.0);
-        }
-        (t, prev) = (t + STEP, next);
+/// What the ground of column (face, i, j) is called (the compass's label and F3): its biome (Terra's, or Luna's,
+/// Mars's and the icy moon's kinds of ground, one table, `biomes::ROWS`), else its rock province; None on a body
+/// with no map (a gas giant, the old noise land).
+pub fn ground_name(b: &engine::world::Body, face: u8, i: i32, j: i32) -> Option<&'static str> {
+    let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+    match b.biome_at(face as usize, ci, cj, b.dir(face as usize, ci, cj)) {
+        Some(k) => engine::biomes::ROWS.biomes.get(k as usize).map(|r| r.name.as_str()),
+        None => province_name(b, face, i, j),
     }
-    None
 }
 
-/// Where the line from Sol through Luna's centre meets a sphere of radius `r` round Terra at time `t`: from
-/// Terra's centre, in the inertial frame's directions. None when it misses.
-pub fn shadow_at(sky: &engine::sky::Sky, t: f64, r: f64) -> Option<DVec3> {
+/// The rock province of column (face, i, j) by its row in data/rocks.toml; None without a map's rock.
+pub fn province_name(b: &engine::world::Body, face: u8, i: i32, j: i32) -> Option<&'static str> {
+    engine::rock::ROCKS.provinces.get(b.col_rock(face, i, j).province as usize).map(|p| p.name.as_str())
+}
+
+/// Luna's elongation at t: how far round her orbit she stands from Sol as seen from Terra, degrees 0 to 360,
+/// counted the way she goes (0 new, 90 first quarter, 180 full, 270 last quarter).
+pub fn elongation(sky: &engine::sky::Sky, t: f64) -> f64 {
     let p = sky.planet(t).centre;
-    let m = sky.moon(t).centre - p;
-    let d = (m - (sky.sun(t) - p)).normalize();
-    let b = m.dot(d);
-    let disc = b * b - (m.length_squared() - r * r);
-    (disc > 0.0).then(|| m + d * (-b - disc.sqrt()))
+    let (s, m) = (sky.sun(t) - p, sky.moon(t).centre - p);
+    // (her orbit leans 2 degrees off the ecliptic, whose pole is +z: the turn about +z is the one she makes)
+    s.cross(m).z.atan2(s.dot(m)).to_degrees().rem_euclid(360.0)
+}
+
+/// Luna's eight phases by name, from new on, a 45-degree step of `elongation` each.
+pub const PHASES: [&str; 8] = ["new", "waxing crescent", "first quarter", "waxing gibbous", "full", "waning gibbous", "last quarter", "waning crescent"];
+
+/// The phase an elongation (degrees) is in: each name holds the 45 degrees centred on its own.
+pub fn phase_name(elong: f64) -> &'static str {
+    PHASES[((elong.rem_euclid(360.0) + 22.5) / 45.0) as usize % 8]
+}
+
+/// The season at body-frame direction `up` on the home at t, by `sky::season_at`'s quarter (0 the spring there).
+pub fn season_name(up: DVec3, t: f64, year: f64) -> &'static str {
+    ["spring", "summer", "autumn", "winter"][engine::sky::season_at(up, t, year).0 as usize % 4]
+}
+
+/// The local solar time at body-frame direction `up` on the home, hours 0 to 24 (12 when Sol is due south or north).
+/// Sol as the world poses the home (ADR 0177); the same angle as `Sky::hour_angle`, since body 0's pose is
+/// `Sky::planet` (the review: an earlier note here said that one drifted; it does not).
+pub fn local_hour(w: &engine::world::World, t: f64, up: DVec3) -> f64 {
+    let p = w.pose(0, t);
+    let s = p.rot.inverse() * (w.sky.sun(t) - p.centre);
+    // the hour angle about the spin axis (body +z): 0 at local noon
+    let ha = (s.x * up.y - s.y * up.x).atan2(s.x * up.x + s.y * up.y);
+    (12.0 + ha / std::f64::consts::TAU * 24.0).rem_euclid(24.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn luna_s_phases_follow_her_elongation() {
+        assert_eq!([0.0, 44.0, 70.0, 90.0, 180.0, 270.0, 300.0, 359.0].map(phase_name), ["new", "waxing crescent", "first quarter", "first quarter", "full", "last quarter", "waning crescent", "new"]);
+        // in the sky she goes round once a month, the way her elongation is counted: forward a day, it grows
+        let w = engine::world::World::new(256, 32, 1);
+        let s = w.sky;
+        let (a, b) = (elongation(&s, 1000.0), elongation(&s, 1000.0 + engine::sky::DAY));
+        assert!((b - a).rem_euclid(360.0) > 5.0 && (b - a).rem_euclid(360.0) < 60.0, "{a} then {b}");
+        // the spawn's clock and the local solar time agree within the spawn's longitude's offset: an hour later is an hour later
+        let up = DVec3::Y;
+        let (h0, h1) = (local_hour(&w, 0.0, up), local_hour(&w, engine::sky::DAY / 24.0, up));
+        assert!(((h1 - h0).rem_euclid(24.0) - 1.0).abs() < 0.05, "{h0} {h1}");
+        assert_eq!(season_name(DVec3::Z, 1.0, s.year), "spring");
+    }
+
+    #[test]
+    fn local_noon_is_where_sol_stands_overhead_in_the_world_s_own_orbits() {
+        // local noon under Sol and midnight opposite it, by the poses (F3's 15:57 with Sol 25 degrees down, 2026-11-24,
+        // was not a drift of the hour: this held before the rewrite too, which changed nothing it computes)
+        let w = engine::world::World::new(256, 32, 1);
+        for t in [0.0, 5000.0, 40190.0, 123456.0] {
+            let p = w.pose(0, t);
+            let s = (p.rot.inverse() * (w.sky.sun(t) - p.centre)).normalize();
+            let h = local_hour(&w, t, s);
+            assert!((h - 12.0).abs() < 0.1, "under Sol at {t}: {h}");
+            let h = local_hour(&w, t, -s);
+            assert!(h < 0.1 || h > 23.9, "opposite Sol at {t}: {h}");
+        }
+    }
+
+    #[test]
+    fn the_ground_is_named_by_its_biome_and_a_map_less_body_by_nothing() {
+        let plain = engine::world::World::new(256, 32, 1);
+        assert_eq!(ground_name(&plain.bodies[0], 0, 10, 10), None);
+        let w = engine::world::World::with_map(512, 32, 5, Some(std::sync::Arc::new(engine::bake::Map::bake(5, 512))));
+        let b = &w.bodies[0];
+        let names: std::collections::HashSet<&str> = (0..6u8).flat_map(|f| (0..8).map(move |k| (f, 20 + k * 60))).filter_map(|(f, k)| ground_name(b, f, k, k)).collect();
+        assert!(names.len() >= 2 && names.iter().all(|n| engine::bake::life::BIOMES.iter().any(|b| b.0 == *n)), "{names:?}");
+        assert!(province_name(b, 0, 100, 100).is_some());
+    }
 
     #[test]
     fn latitude_longitude_and_bearings_follow_the_spin_axis() {
@@ -274,31 +317,5 @@ mod tests {
         }
         assert_eq!(v, View::Body);
         assert_eq!((View::Near(25.0).text(), View::Body.text()), ("within 25 km".to_string(), "on its own body".to_string()));
-    }
-
-    #[test]
-    fn the_next_eclipses_are_found_in_the_sky_itself() {
-        // bugs/2026-11-11_13-12-42: searched forward in the sky's own functions, so new orbits stay right
-        let w = engine::world::World::new(256, 32, 1);
-        let s = w.sky;
-        let t0 = 5000.0;
-        let started = std::time::Instant::now();
-        let solar = next_eclipse(&s, t0, false).expect("a solar eclipse within the sky's cycle");
-        let lunar = next_eclipse(&s, t0, true).expect("a lunar eclipse within the sky's cycle");
-        eprintln!("searched both in {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
-        assert!(solar > t0 && lunar > t0);
-        // where the shadow's middle meets the ground, the sun is hidden; Luna's centre sees none of it
-        let p = s.planet(solar).centre;
-        let hit = shadow_at(&s, solar, s.planet_radius).expect("the shadow's middle on Terra");
-        assert!(s.eclipse(solar, p + hit) > 0.999, "{}", s.eclipse(solar, p + hit));
-        assert!((hit.length() - s.planet_radius).abs() < 1e-6);
-        assert_eq!(s.covered(lunar, s.moon(lunar).centre, s.planet(lunar).centre, s.planet_radius), 1.0);
-        // (the review) asked again just past an eclipse's middle, the answer is the one after it, not this one
-        for (found, lunar) in [(solar, false), (lunar, true)] {
-            let after = next_eclipse(&s, found + 90.0, lunar).expect("another");
-            assert!(after > found + 2000.0, "{after} after {found}");
-        }
-        // nothing earlier: a minute before, the sun was not yet hidden there
-        assert!(s.eclipse(solar - 60.0, p + hit) < 0.999);
     }
 }

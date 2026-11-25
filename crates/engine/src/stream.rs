@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh_cracked, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate_raw, metal_quads, pidx, skirt, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
+use crate::world::{cave_quads, fold, generate_raw, metal_quads, pidx, skirt, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -92,6 +92,9 @@ struct Slot {
     live: bool,
     /// `Streamer::complete_at`'s answer for the walk of that number (`Streamer::walk_no`).
     complete: (u64, bool),
+    /// The version an edit asked for (`touch_block`; 0: none): until it is shown, its mesh job goes with the
+    /// holes, by distance alone, not after every chunk still to come (`hurry`).
+    urgent: u32,
 }
 
 /// No slot (`Slot::kids`, a walk's stack: not made yet).
@@ -144,7 +147,7 @@ impl Slots {
         if let Some(i) = self.id(&k) {
             return i;
         }
-        let slot = Slot { state: State::Pending, last_seen: frame, want_v: 0, shown_v: 0, inflight: false, bounds: bounds(), leaf_at: 0, clim: 0, drawn_at: (0, 0), key: k, kids: [UNKNOWN; 8], live: true, complete: (0, false) };
+        let slot = Slot { state: State::Pending, last_seen: frame, want_v: 0, shown_v: 0, inflight: false, bounds: bounds(), leaf_at: 0, clim: 0, drawn_at: (0, 0), urgent: 0, key: k, kids: [UNKNOWN; 8], live: true, complete: (0, false) };
         let i = match self.free.pop() {
             Some(i) => {
                 self.slab[i as usize] = slot;
@@ -209,6 +212,10 @@ struct Walk {
 impl Slot {
     fn needs_job(&self) -> bool {
         (self.state == State::Pending || self.shown_v < self.want_v) && !self.inflight
+    }
+    /// An edit's version is not shown yet: its job is not put after the chunks still to come.
+    fn hurry(&self) -> bool {
+        self.shown_v < self.urgent
     }
 }
 
@@ -658,7 +665,7 @@ impl Streamer {
             let id = if id == NONE { self.slots.make(k, frame, || world.bodies[k.body as usize].bounds(k)) } else { id };
             let slot = self.slots.at_mut(id);
             slot.last_seen = frame;
-            let (bd, needs_job, pending) = (slot.bounds, slot.needs_job(), slot.state == State::Pending);
+            let (bd, needs_job, pending, hurry) = (slot.bounds, slot.needs_job(), slot.state == State::Pending, slot.hurry());
             let d = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0);
             if k.level > 0 && d < kk * k.edge() {
                 if !draw && d >= self.opts.k * k.edge() && needs_job {
@@ -755,7 +762,8 @@ impl Streamer {
                 if hidden {
                     p *= 3.0;
                 }
-                if !pending || covered || hidden || stand_in {
+                // (a block changed by hand shows next: by distance alone, as a hole)
+                if (!pending || covered || hidden || stand_in) && !hurry {
                     p += REFINE;
                 }
                 // a pending chunk is not meshed while the quad buffer is full (`dispatch` passes over it): it is not
@@ -809,7 +817,7 @@ impl Streamer {
             if s.leaf_at == self.walk_frame && s.needs_job() {
                 let d = ((s.bounds.c - view.cam_in(k.body)).length() - s.bounds.rad).max(0.0);
                 let hidden = self.hidden(view, k.body, &s.bounds);
-                reqs.push((d * prio_mul * if hidden { 3.0 } else { 1.0 } + REFINE, k));
+                reqs.push((d * prio_mul * if hidden { 3.0 } else { 1.0 } + if s.hurry() { 0.0 } else { REFINE }, k));
                 st.requests += 1;
             }
         }
@@ -954,6 +962,7 @@ impl Streamer {
                     }
                     let mut sea = sea_quads(body, k, &wet, &gen);
                     sea.extend(river_quads(body, k, &wet, &gen));
+                    sea.extend(cave_quads(body, k, &wet, &gen));
                     sea.extend(metal_quads(body, k, &gen));
                     if !sea.is_empty() {
                         let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, ray_cut: 0, fluff: 0, glass: 0, still: 0, water: 0 });
@@ -1076,6 +1085,7 @@ impl Streamer {
         for k in sampling(world, b, world.far_levels(b)) {
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
+                sl.urgent = sl.want_v;
                 self.touched.push(k);
             }
         }
@@ -1724,6 +1734,44 @@ mod tests {
         assert_eq!(other, early, "the freed place is used again");
         assert_eq!((s.kid(pi, 3, &p.child(3)), s.kid(pi, 6, &p.child(6))), (other, NONE), "no link left to the place's old chunk");
         assert_eq!(s.iter().count(), 3);
+    }
+
+    /// A block changed under the player's hand is meshed before the chunks still streaming in: its request is
+    /// ranked by distance alone, with the holes, on a walk and on a frame that only culls. (Ranked after every
+    /// pending chunk, a click's change took 14 to 38 frames to show while walking at detail 8: the gate's feel
+    /// run, 2026-11-25; it showed in one on 2026-11-12, before the deep grid's chunks kept the workers busy.)
+    #[test]
+    fn an_edits_mesh_goes_before_the_chunks_still_to_come() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        let b = &w.bodies[0];
+        let ground = b.spawn_point() + b.spawn * 1.7;
+        settle(&mut s, &w, ground);
+        // 60 m on: chunks split anew and wait for meshes; the block under the feet there is edited
+        let cam = ground + b.spawn.any_orthonormal_vector() * 60.0;
+        let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let frame = |s: &mut Streamer| {
+            s.frame += 1;
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            reqs
+        };
+        s.dirty = true;
+        let waiting = frame(&mut s);
+        assert!(!waiting.is_empty(), "chunks wait for meshes after the move");
+        let hit = w.block_at(cam - b.spawn * 3.0);
+        let keys = sampling(&w, hit, 1);
+        assert!(keys.iter().all(|k| s.slots.get(k).is_some_and(|sl| sl.state != State::Pending)), "the edited chunks are drawn already");
+        for walk in [true, false] {
+            s.touch_block(&w, hit);
+            s.dirty = walk;
+            let walks = s.walks;
+            let reqs = frame(&mut s);
+            assert_eq!(s.walks - walks, walk as u64, "a walk, then a frame that only culls");
+            let mine: Vec<f64> = reqs.iter().filter(|r| keys.contains(&r.1)).map(|r| r.0).collect();
+            assert!(!mine.is_empty() && mine.iter().all(|p| *p < 100.0), "walk {walk}: the edit's requests rank at {mine:?}");
+        }
     }
 
     /// What a walk costs at detail 4 and 8, settled and after a move that leaves chunks waiting (a flight)

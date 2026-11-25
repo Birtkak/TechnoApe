@@ -174,18 +174,44 @@ pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
     // a cell [k, k + 1) overlaps the open interval (lo, hi) when k < hi and k + 1 > lo
     let span = |lo: f64, hi: f64| (lo.floor() as i32)..(hi.ceil() as i32);
     let (is, js, ls) = (span(g.x - hi, g.x + hi), span(g.y - hj, g.y + hj), span(g.z, g.z + ht));
+    // On the warped grid the columns over a seam are not this face's lattice carried on (near a corner one is
+    // narrower than half of those, so a sample a cell met the second column, not the first): the part of the box
+    // past the edge is met point by point, every 0.2 m, which no column is narrower than.
+    let warped = b.warp != 0.0;
+    let mut over: Vec<Block> = Vec::new();
+    if warped && (is.start < 0 || js.start < 0 || is.end > b.n || js.end > b.n) {
+        let (d0, r0) = (b.dir(face, g.x, g.y), b.layer_r(g.z));
+        let along = |di: f64, dj: f64| (b.dir(face, g.x + di, g.y + dj) - b.dir(face, g.x - di, g.y - dj)).normalize();
+        let (ti, tj) = (along(0.5, 0.0), along(0.0, 0.5));
+        const AT: [f64; 4] = [-0.999, -1.0 / 3.0, 1.0 / 3.0, 0.999];
+        // (a column's layers one after another, as `blocked` reads the ground once a column)
+        for a in AT {
+            for c in AT {
+                let d = (d0 + (ti * a + tj * c) * (WIDTH * 0.5 / r0)).normalize();
+                for l in ls.clone() {
+                    let m = world.block_at(b.centre + d * b.layer_r(l as f64 + 0.5));
+                    if m.face as usize != face && !over.contains(&m) {
+                        over.push(m);
+                    }
+                }
+            }
+        }
+    }
     is.flat_map(move |i| {
         let ls = ls.clone();
         js.clone().flat_map(move |j| {
-            ls.clone().map(move |l| {
+            ls.clone().filter_map(move |l| {
                 if (0..b.n).contains(&i) && (0..b.n).contains(&j) {
-                    Block { body: bi as u8, face: face as u8, pos: glam::IVec3::new(i, j, l) }
+                    Some(Block { body: bi as u8, face: face as u8, pos: glam::IVec3::new(i, j, l) })
+                } else if warped {
+                    None
                 } else {
-                    world.block_at(b.centre + b.dir(face, i as f64 + 0.5, j as f64 + 0.5) * b.layer_r(l as f64 + 0.5))
+                    Some(world.block_at(b.centre + b.dir(face, i as f64 + 0.5, j as f64 + 0.5) * b.layer_r(l as f64 + 0.5)))
                 }
             })
         })
     })
+    .chain(over)
 }
 
 /// True when the player's box with its feet at `pos` overlaps a solid block.
@@ -310,6 +336,31 @@ pub fn onto_ground(world: &World, p: &mut Player) {
     p.vel -= n * p.vel.dot(n).min(0.0);
 }
 
+/// Where a player leaving spectator mode at `pos` stands (ADR 0202): on the open ground of its
+/// column, the first solid cell from the sky down, so not in a cave under it nor in the air over it; on the
+/// surface of water there (it swims). None where that ground is lava, on a gas body, or out of every body's frame.
+pub fn open_ground(world: &World, pos: DVec3) -> Option<DVec3> {
+    // (in space: past a body radius over the ground, it is not over a column but out at the sky)
+    let b = world.bodies.get(world.frame_at(pos)).filter(|b| !b.gas && (pos - b.centre).length() < 2.0 * b.radius)?;
+    let d = (pos - b.centre).normalize_or(DVec3::Y);
+    // from over the highest ground and what may be built on it, down a quarter metre at a time
+    let mut r = b.radius + crate::world::AMP + 64.0;
+    while r > b.r0 + 1.0 {
+        let feet = b.centre + d * r;
+        let below = feet - d * 0.25;
+        if world.lava_at(below) {
+            return None;
+        }
+        if blocked(world, below) || world.water_surface(below).is_some() {
+            let mut p = Player::at(feet, tangent(d.any_orthonormal_vector(), d, DVec3::X));
+            onto_ground(world, &mut p);
+            return Some(p.pos);
+        }
+        r -= 0.25;
+    }
+    None
+}
+
 /// How far over a not-yet-loaded body's highest ground a player is held (`held_by_a_body`).
 pub const HOLD_M: f64 = 200.0;
 
@@ -328,6 +379,53 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool 
     let sprinted = step(world, p, inp, dt);
     world.time = now;
     sprinted
+}
+
+/// A spectator's step (ADR 0202): flight along the look at the input's `fly` speed (`GHOST_FLY` when 0), up and down
+/// with jump and `down`, through blocks and fluids, with no gravity, no box and no ground. The body stays upright on
+/// the pull's up and turns with the input; it changes frame as any step does.
+pub fn ghost(world: &World, p: &mut Player, inp: &Input, dt: f64) {
+    let up = pull(world, p.pos).0;
+    let look = DVec3::new(inp.fwd[0] as f64, inp.fwd[1] as f64, inp.fwd[2] as f64);
+    let mut fwd = tangent(if look.is_finite() && look != DVec3::ZERO { look } else { p.fwd }, up, p.fwd);
+    if inp.turn != 0.0 {
+        fwd = turned(up, inp.turn as f64, fwd);
+    }
+    let right = fwd.cross(up).normalize();
+    let ahead = fwd * (inp.pitch as f64).cos() + up * (inp.pitch as f64).sin();
+    let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
+    let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
+    let speed = if inp.fly > 0.0 { (inp.fly as f64).min(FLY_MAX) } else { GHOST_FLY };
+    p.vel = ((right * mv.x + ahead * mv.z).clamp_length_max(1.0) + up * vert) * speed;
+    p.pos += p.vel * dt;
+    // held over the grid's bottom layer: no cells lie under it (the review; the soak's diving spectators)
+    if let Some(b) = world.bodies.get(world.frame_at(p.pos)) {
+        let r = p.pos - b.centre;
+        if r.length() < b.r0 + GHOST_FLOOR {
+            p.pos = b.centre + r.normalize_or(up) * (b.r0 + GHOST_FLOOR);
+        }
+    }
+    (p.up, p.fwd, p.on_ground) = (up, fwd, false);
+    if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
+        (p.fwd, p.up) = (r * p.fwd, r * p.up);
+    }
+}
+
+/// A spectator's speed when its input names none (m/s).
+pub const GHOST_FLY: f64 = 10.0;
+
+/// How far over a body's bottom layer (`r0`) a spectator is held: no cells lie under it.
+pub const GHOST_FLOOR: f64 = 2.0;
+
+/// A spectator's step at the input's own world time (`Input::t`), as `step_at`: where a frame crossing lands
+/// depends on where the bodies are, so the client and the server step it at the same moment.
+pub fn ghost_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) {
+    let now = world.time;
+    if inp.t != 0.0 {
+        world.time = inp.t;
+    }
+    ghost(world, p, inp, dt);
+    world.time = now;
 }
 
 /// One step of `dt` seconds for one player. True when it sprinted (ADR 0118): the sprint was applied and the
@@ -427,7 +525,11 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         let dir = dir + fwd * sprint_share * (SPRINT - 1.0);
         // shortcut: a thick fluid slows the walk by 1 + (visc - 1) sub / 16 (lava at the float line: about half again),
         // a taste default; from a drag law on the body once something else wades
-        let wish = dir * WALK * (1.0 - 0.5 * sub) / (1.0 + (visc - 1.0) * sub / 16.0);
+        // snow short of a block is no floor: the feet sink through it to the ground and the walk is slower by its depth
+        // (ADR 0189, `snow::DRAG`); a full block of it is a block, stood on
+        let feet = world.block_at(p.pos + up * 0.05);
+        let sunk = world.snow.sunk(World::col(feet), feet.pos.z);
+        let wish = dir * WALK * (1.0 - 0.5 * sub) / (1.0 + (visc - 1.0) * sub / 16.0) * (1.0 - crate::snow::DRAG * sunk);
         // climbing OUT: jump held (or a stroke) in real water near the surface, the look not down, against a
         // bank whose top is at or over the surface and within reach; elsewhere a stroke slides along a wall
         // (real water: a third of the body in, or still in with water, not a floor, under the feet; a puddle's
@@ -528,6 +630,71 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
 mod tests {
     use super::*;
 
+    /// What the physics' look-ups cost a call on the old grid and on the conformal one
+    /// (cargo test -p engine --profile play --lib grid_cost -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn grid_cost() {
+        for warp in [0.0, 1.0] {
+            let w = World::with_maps_warp(768, 64, 5, None, None, warp);
+            let b = w.bodies[0].clone();
+            let at = b.spawn_point();
+            let u = up(&w, at);
+            let side = u.any_orthonormal_vector();
+            let n = 200_000;
+            let time = |f: &mut dyn FnMut(DVec3)| {
+                let t = std::time::Instant::now();
+                for k in 0..n {
+                    f(at + side * (k % 97) as f64 * 0.13 + u * (1.0 + (k % 7) as f64 * 0.31));
+                }
+                t.elapsed().as_secs_f64() * 1e9 / n as f64
+            };
+            let locate = time(&mut |p| { std::hint::black_box(b.locate((p - b.centre).normalize())); });
+            let grid = time(&mut |p| { std::hint::black_box(w.grid_at(p)); });
+            let block = time(&mut |p| { std::hint::black_box(w.block_at(p)); });
+            let blk = time(&mut |p| { std::hint::black_box(blocked(&w, p)); });
+            let dir = time(&mut |p| { std::hint::black_box(b.dir(2, p.x.abs() % 700.0, p.z.abs() % 700.0)); });
+            let mut pl = Player::at(at + u * 0.5, tangent(side, u, DVec3::X));
+            let mut wm = World::with_maps_warp(768, 64, 5, None, None, warp);
+            let t = std::time::Instant::now();
+            let steps = 20_000;
+            for k in 0..steps {
+                let f = (side * if k % 400 < 200 { 1.0 } else { -1.0 }).as_vec3().to_array();
+                step(&mut wm, &mut pl, &Input { mv: [1.0, 0.0], fwd: f, jump: k % 50 == 0, ..Default::default() }, 1.0 / 20.0);
+            }
+            let st = t.elapsed().as_secs_f64() * 1e9 / steps as f64;
+            println!("{{\"grid_cost\":{{\"warp\":{warp},\"locate_ns\":{locate:.0},\"grid_at_ns\":{grid:.0},\"block_at_ns\":{block:.0},\"blocked_ns\":{blk:.0},\"dir_ns\":{dir:.0},\"step_ns\":{st:.0}}}}}");
+        }
+    }
+
+    /// On the conformal grid a column near a cube corner is narrower than half a column of the old grid, and the
+    /// box's cells past a face edge were one sample a cell of the face's own lattice carried on past the edge:
+    /// half an old column out, which is the second column over there, so a wall in the first was walked into
+    /// (the review of generation 13).
+    #[test]
+    fn a_wall_one_column_past_a_seam_near_a_corner_blocks() {
+        let mut w = World::with_maps_warp(768, 64, 5, None, None, 1.0);
+        let b = w.bodies[0].clone();
+        let face = 0;
+        // a column at the face's edge whose box reaches over the seam, where the column just over it is not the
+        // one the old sample met
+        let found = (2..80).find_map(|j| {
+            let jf = j as f64 + 0.5;
+            let (d_in, d_adj, d_old) = (b.dir(face, 0.5, jf), b.dir(face, -0.02, jf), b.dir(face, -0.5, jf));
+            let r = [d_in, d_adj, d_old].map(|d| b.height(d)).into_iter().fold(0.0, f64::max) + 20.0;
+            let wide = (b.dir(face, 1.0, jf) - b.dir(face, 0.0, jf)).length() * r;
+            let (near, old) = (w.block_at(b.centre + d_adj * r), w.block_at(b.centre + d_old * r));
+            ((near.face, near.pos.x, near.pos.y) != (old.face, old.pos.x, old.pos.y) && wide < 0.55).then_some((d_in, near))
+        });
+        let (d_in, near) = found.expect("a narrow column at a seam near the corner");
+        let feet = b.centre + d_in * (b.layer_r(near.pos.z as f64) + 0.05);
+        assert!(!blocked(&w, feet), "free in the air before the wall");
+        for dz in 0..3 {
+            w.set_block(Block { pos: near.pos + glam::IVec3::new(0, 0, dz), ..near }, 3);
+        }
+        assert!(blocked(&w, feet), "the box reaches over the seam into the wall's column");
+    }
+
     fn world() -> World {
         World::new(256, 32, 1337)
     }
@@ -544,6 +711,72 @@ mod tests {
         for _ in 0..(secs * 20.0) as usize {
             step(w, p, inp, 0.05);
         }
+    }
+
+    #[test]
+    fn a_spectator_flies_into_the_ground_and_hangs_where_it_stops() {
+        let w = world();
+        let g = ground(&w);
+        let u = up(&w, g);
+        // straight down at 10 m/s for 2 s: 20 m into the rock, where a walker's box would have stopped on the ground
+        let mut p = Player::at(g, tangent(DVec3::X, u, DVec3::Z));
+        let down = Input { down: true, fly: 10.0, ..Default::default() };
+        for _ in 0..120 {
+            ghost(&w, &mut p, &down, DT);
+        }
+        assert!((p.pos - (g - u * 20.0)).length() < 1e-6 && inside(&w, &p), "{} m down", (g - p.pos).dot(u));
+        // (the review) a walker given the same input, creative and flying down, stops on the ground: the ghost's is no box
+        let mut walker = Player::at(g, tangent(DVec3::X, u, DVec3::Z));
+        for _ in 0..120 {
+            step(&w, &mut walker, &down, DT);
+        }
+        assert!(!inside(&w, &walker) && (g - walker.pos).dot(u) < 1.0, "a walker {} m down", (g - walker.pos).dot(u));
+        // let go, it does not fall
+        let at = p.pos;
+        for _ in 0..40 {
+            ghost(&w, &mut p, &Input::default(), DT);
+        }
+        assert_eq!(p.pos, at);
+        // forward along the look through a hill: as far as the speed says
+        let ahead = Input { mv: [1.0, 0.0], fly: 5.0, ..Default::default() };
+        ghost(&w, &mut p, &ahead, DT);
+        assert!(((p.pos - at).length() - 5.0 * DT).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_spectator_stops_over_the_core_however_long_it_dives() {
+        // (the review) the soak's spectator bots dove 30 % of their ticks: under the grid's bottom layer the
+        // world has no cells, so a ghost is held over it
+        let w = world();
+        let b = &w.bodies[0];
+        let g = ground(&w);
+        let mut p = Player::at(g, tangent(DVec3::X, up(&w, g), DVec3::Z));
+        let down = Input { down: true, fly: FLY_MAX as f32, ..Default::default() };
+        for _ in 0..600 {
+            ghost(&w, &mut p, &down, DT);
+            assert!((p.pos - b.centre).length() >= b.r0 + GHOST_FLOOR - 1e-6, "{} under r0", b.r0 - (p.pos - b.centre).length());
+        }
+    }
+
+    #[test]
+    fn a_spectator_s_step_at_the_input_s_time_agrees_across_a_frame_crossing() {
+        // (the review) out of a frame where a ghost lands depends on where the bodies are: the client and the server
+        // step it at the input's time, whatever their own clocks say, or a fast one is corrected by metres
+        let w0 = world();
+        let soi = w0.soi(0);
+        let out = DVec3::X;
+        let start = w0.bodies[0].centre + out * (1.5 * soi - 5.0);
+        let inp = Input { jump: true, fly: FLY_MAX as f32, t: 1000.0, ..Default::default() };
+        let (mut a, mut b) = (world(), world());
+        (a.time, b.time) = (1000.0, 1060.0);
+        let (mut pa, mut pb) = (Player::at(start, DVec3::Y), Player::at(start, DVec3::Y));
+        for _ in 0..3 {
+            ghost_at(&mut a, &mut pa, &inp, DT);
+            ghost_at(&mut b, &mut pb, &inp, DT);
+        }
+        assert_ne!(a.frame_at(pa.pos), 0, "the ghost left the home's frame");
+        assert!((pa.pos - pb.pos).length() < 0.01, "{} m apart", (pa.pos - pb.pos).length());
+        assert_eq!((a.time, b.time), (1000.0, 1060.0), "the clocks put back");
     }
 
     #[test]
@@ -1180,6 +1413,43 @@ mod tests {
         let next = Block { pos: b0.pos + glam::IVec3::X, ..b0 };
         let way = (w.block_centre(next) - w.block_centre(b0)).reject_from(d).normalize();
         (w.block_centre(b0) + d * 0.5, top.map_or(0.0, |t| layer_r(w, t) - r), way)
+    }
+
+    /// Snow in eighths (ADR 0189): three eighths are no floor, the feet sink through to the ground and the walk
+    /// is slower by `DRAG` x 3/8 (19 %); a full block of snow is stood on.
+    #[test]
+    fn a_body_sinks_in_three_eighths_of_snow_walks_slower_and_stands_on_a_block_of_it() {
+        let mut w = world();
+        let g = ground(&w);
+        let u = up(&w, g);
+        let dir = tangent(DVec3::X, u, DVec3::Z);
+        let f = dir.as_vec3().to_array();
+        let walk = |w: &World| {
+            let mut p = Player::at(g, dir);
+            run(w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+            let (s, z) = (p.pos, w.block_at(p.pos + u * 0.05).pos.z);
+            for _ in 0..20 {
+                step(w, &mut p, &Input { mv: [1.0, 0.0], fwd: f, ..Default::default() }, DT);
+            }
+            (s, z, (p.pos - s).reject_from(u).length(), p.on_ground)
+        };
+        let (s0, z0, clear, _) = walk(&w);
+        let b = w.block_at(s0 + u * 0.05);
+        let snow = BLOCKS.id("snow");
+        let cols: Vec<_> = (-8..=8).flat_map(|i| (-8..=8).map(move |j| (i, j))).map(|(i, j)| crate::liquid::Col::new(b.body, b.face, b.pos.x + i, b.pos.y + j)).collect();
+        // three eighths on the cell the feet stand in, wherever the walk goes
+        let seen: Vec<_> = cols.iter().map(|&c| (c, Some(crate::snow::Seen { z: z0, top: 0.375, eighths: 3, block: snow }))).collect();
+        w.snow.apply(&seen);
+        let (s1, z1, sunk, on) = walk(&w);
+        eprintln!("walked {clear:.3} m clear, {sunk:.3} m in three eighths ({:.3})", sunk / clear);
+        assert!(on && z1 == z0 && (s1 - s0).dot(u).abs() < 1e-6, "the feet on the ground under the snow");
+        assert!((sunk / clear - (1.0 - crate::snow::DRAG * 0.375)).abs() < 0.01, "slowed by the factor: {}", sunk / clear);
+        // a full block of snow where the feet stood: stood on, a block higher
+        w.snow.apply(&cols.iter().map(|&c| (c, None)).collect::<Vec<_>>());
+        w.set_block(b, snow);
+        let mut p = Player::at(s0 + u * 1.5, dir);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 2.0);
+        assert!(p.on_ground && w.block_at(p.pos + u * 0.05).pos.z == z0 + 1, "on top of the snow block");
     }
 
     /// Wading (ADR 0118): on the bottom with the feet in and the head out, it is a walk, slower than on land.

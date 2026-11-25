@@ -56,7 +56,8 @@ impl Server {
                 Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
             }
             _ => match engine::bodies::find(to).filter(|&i| i < w.bodies.len())? {
-                0 => Some((w.bodies[0].spawn_point(), w.bodies[0].spawn.any_orthonormal_vector())),
+                // (the spawn as `spawn` gives it: on top of what was built there)
+                0 => Some((self.spawn(), w.bodies[0].spawn.any_orthonormal_vector())),
                 // the day side, the sun 45 degrees up: an airless night is black (on a gas body, its cloud tops:
                 // `Body::height`, step 6a)
                 i => {
@@ -97,7 +98,12 @@ impl Server {
         let mode = |creative: bool| if creative { "creative" } else { "survival" };
         let block_named = |name: &str| BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name));
         let blocks = || BLOCKS.placeable().map(|d| d.name.as_str()).collect::<Vec<&str>>().join(", ");
-        match w.first().map(|s| s.to_lowercase()).as_deref() {
+        let verb = w.first().map(|s| s.to_lowercase());
+        // a spectator acts on nothing (ADR 0202): no blocks, no structures, nothing given
+        if self.clients[i].spectator && matches!(verb.as_deref(), Some("give" | "place" | "structure")) {
+            return "a spectator changes nothing: /playmode survival or creative first".into();
+        }
+        match verb.as_deref() {
             Some("help") | None => [
                 "Commands:",
                 "  /time                the time of day at the spawn",
@@ -105,7 +111,7 @@ impl Server {
                 "                       midnight, 14:30, or world seconds",
                 "                       or spring summer autumn winter",
                 "  /time add <seconds>  move the clock on",
-                "  /playmode <mode>     creative or survival",
+                "  /playmode <mode>     creative, survival or spectator",
                 "  /give <block> [n]    n blocks, 64 if left out",
                 "  /place <block>       one under your feet; or at",
                 "    [face i j layer]   that block of the body you are on (F3)",
@@ -200,8 +206,8 @@ impl Server {
                 if c.vitals.dead.is_some() {
                     return "you are dead: respawn first".into();
                 }
-                if c.creative {
-                    return "creative has no health or hunger: /playmode survival".into();
+                if c.creative || c.spectator {
+                    return format!("{} has no health or hunger: /playmode survival", if c.spectator { "a spectator" } else { "creative" });
                 }
                 match cmd {
                     "heal" => {
@@ -328,15 +334,39 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 }
             }
             Some("playmode") | Some("gamemode") => {
-                let c = &mut self.clients[i];
-                let on = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
-                    None => return format!("you play in {} mode\nusage: /playmode creative|survival", mode(c.creative)),
-                    Some("creative" | "c" | "1") => true,
-                    Some("survival" | "s" | "0") => false,
-                    Some(m) => return format!("no play mode '{m}': creative or survival"),
+                let c = &self.clients[i];
+                let now = if c.spectator { "spectator" } else { mode(c.creative) };
+                // (the developer, 2026-11-24: spectator is a mode of /playmode, ADR 0202)
+                let (creative, spectator) = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
+                    None => return format!("you play in {now} mode\nusage: /playmode creative|survival|spectator"),
+                    Some("creative" | "c" | "1") => (true, false),
+                    Some("survival" | "s" | "0") => (false, false),
+                    Some("spectator" | "sp" | "3") => (c.creative, true),
+                    Some(m) => return format!("no play mode '{m}': creative, survival or spectator"),
                 };
-                (c.creative, c.inv_dirty) = (on, true);
-                format!("play mode: {}", mode(on))
+                if c.vitals.dead.is_some() && spectator {
+                    return "you are dead: respawn first".into();
+                }
+                let was = c.spectator;
+                if !was && spectator {
+                    // a dig held ends, the others' cracks with it, and a drink; where it went in is kept (`landing`)
+                    self.tell_dig(i, None);
+                    let c = &mut self.clients[i];
+                    c.hold.done();
+                    (c.drink, c.entered) = (None, c.phys.pos);
+                }
+                if was && !spectator {
+                    // out of it standing on the open ground (`landing`); the input is cleared here only, as a
+                    // teleport's is, since the steps the client predicted were from the old place
+                    let (to, look) = (landing(&self.clients[i], &self.world), self.clients[i].phys.fwd);
+                    self.put(i, to, look);
+                }
+                let c = &mut self.clients[i];
+                if was != spectator {
+                    c.link.send(ToClient::Spectator(spectator));
+                }
+                (c.creative, c.spectator, c.inv_dirty) = (creative, spectator, true);
+                format!("play mode: {}", if spectator { "spectator" } else { mode(creative) })
             }
             Some("give") => {
                 // the count is a last word that is a number; the item's name is the words before it
@@ -388,7 +418,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 if !Shape::one(b).fits(world) {
                     return format!("no such block on {}: face 0 to 5, then i j layer as F3 shows them", world.bodies[body].name);
                 }
-                if BLOCKS.solid(d.id) && self.clients.iter().any(|c| phys::holds(world, &c.phys, b)) {
+                if BLOCKS.solid(d.id) && self.clients.iter().any(|c| !c.spectator && phys::holds(world, &c.phys, b)) {
                     return "a player stands there: a solid block would trap them".into();
                 }
                 let was = self.world.block(b);
@@ -469,7 +499,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     return format!("{name} is {} blocks: /structure places {MOST} at most", cells.len());
                 }
                 // where the players are, gathered once (not once a block)
-                let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(world, c.phys.pos)).collect();
+                let held: std::collections::HashSet<Block> = self.clients.iter().filter(|c| !c.spectator).flat_map(|c| phys::cells(world, c.phys.pos)).collect();
                 // x along j, z along i, y up the layers: as `structure=` stands one and the Studio shows it
                 let put: Vec<(Block, u16)> = cells
                     .into_iter()
@@ -489,10 +519,12 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         }
     }
 
-    /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark.
+    /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark. Where
+    /// something stands there now (a block placed on the spawn, a tree, a heap), on top of it: the open ground
+    /// of that column (`phys::open_ground`). The spawn as made is the same point as ever, to the bit.
     pub(super) fn spawn(&self) -> DVec3 {
-        let b = &self.world.bodies[0];
-        b.spawn_point()
+        let at = self.world.bodies[0].spawn_point();
+        if phys::blocked(&self.world, at) { phys::open_ground(&self.world, at).unwrap_or(at) } else { at }
     }
 
     /// The server's clock in seconds: ticks, so a replay decides as the run did.

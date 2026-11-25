@@ -141,7 +141,31 @@ impl Ground for Solid<'_> {
         (self.gen_floor(c) as i64 * U, (top * U as f64) as i64)
     }
     fn generated_other(&self, c: Col) -> Vec<(i64, i64, i64, u8)> {
-        self.bodies[c.body() as usize].lava_col(c.face(), c.i(), c.j())
+        let b = &self.bodies[c.body() as usize];
+        let mut out = b.lava_col(c.face(), c.i(), c.j());
+        if out.is_empty() {
+            out = b.ground_water_col(c.face(), c.i(), c.j());
+        }
+        out
+    }
+    fn ground_water(&self) -> bool {
+        self.bodies.first().and_then(|b| b.baked.as_ref()).is_some_and(|b| !b.map.table.is_empty())
+    }
+    fn calendar(&self) -> f64 {
+        self.air.as_ref().map_or(1.0, |a| crate::liquid::REAL_YEAR / a.sky.year)
+    }
+    fn aquifer(&self, c: Col) -> Option<crate::liquid::Aq> {
+        let mut a = self.bodies[c.body() as usize].aquifer(c.face(), c.i(), c.j())?;
+        a.cell |= (c.body() as u64) << 56;
+        a.nb = a.nb.map(|n| n | (c.body() as u64) << 56);
+        Some(a)
+    }
+    fn aquifer_cell(&self, cell: u64) -> Option<crate::liquid::Aq> {
+        let body = (cell >> 56) as usize;
+        let mut a = self.bodies.get(body)?.aquifer_cell(cell & ((1 << 56) - 1))?;
+        a.cell = cell;
+        a.nb = a.nb.map(|n| n | (body as u64) << 56);
+        Some(a)
     }
     fn heat(&self, c: Col, z: f64) -> f32 {
         self.bodies[c.body() as usize].rest_heat(c.face(), c.i(), c.j(), z)

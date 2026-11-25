@@ -188,6 +188,17 @@ pub enum ToClient {
     /// This player's journal entries that changed state (`journal`, draft ADR journal-data), by name; once
     /// it has its name (`Hello`), every entry not unknown, then each change at the end of its tick.
     Journal(Vec<(String, crate::journal::State)>),
+    /// Snow, and ice and rock short of a block, in eighths (ADR 0189, `snow::Seen`): every column that shows
+    /// some on join, then the columns whose eighths changed (None: nothing shows), at most once a second. Last of the
+    /// variants, so an older server never sends it and an older client is never sent it by one of its own age.
+    Layers(Vec<(crate::liquid::Col, Option<crate::snow::Seen>)>),
+    /// Cells whose edit is gone, generation's again (ADR 0189: snow packed over a clutter plant melted or dug,
+    /// the plant back): sent after the tick's `Edits`. Last of the variants, as `Layers`.
+    Unedit(Vec<Block>),
+    /// This player is a spectator now (true) or no longer (ADR 0202, `/playmode spectator`): it flies through
+    /// everything with `phys::ghost` and acts on nothing. Sent on a change only (a join is never one). Last of the
+    /// variants, as `Layers`.
+    Spectator(bool),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,
@@ -291,6 +302,12 @@ pub fn fits(world: &crate::world::World, m: &ToClient) -> bool {
         ToClient::Marks { death, home } => death.iter().chain(home).all(ok),
         ToClient::Digging { at, .. } => at.as_ref().is_none_or(|(s, _, _)| s.fits(world)),
         ToClient::Furnace { at, .. } => ok(at),
+        ToClient::Unedit(v) => v.iter().all(ok),
+        ToClient::Spectator(_) => true,
+        ToClient::Layers(v) => v.iter().all(|(c, s)| {
+            let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), s.map_or(0, |s| s.z)) };
+            ok(&b) && s.is_none_or(|s| crate::blocks::BLOCKS.get(s.block).is_some())
+        }),
         ToClient::Events(v) => v.iter().all(|e| e.cell().iter().chain(if let crate::events::Event::Fall { from, .. } = e { Some(from) } else { None }).all(ok)),
         _ => true,
     }
@@ -627,7 +644,7 @@ mod tests {
     #[test]
     fn a_missing_map_comes_in_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], rock: vec![0; cells], ..crate::bake::Map::empty() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], rock: vec![0; cells], table: vec![0.0; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         // a run before this one kept it: this client must not have it yet
         let _ = std::fs::remove_file(crate::bake::file(-12345, 3072));
@@ -656,7 +673,7 @@ mod tests {
     #[test]
     fn a_download_holds_no_more_than_the_inbound_bound() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12347, n: 3072, m: 384, h: vec![2.0; cells], biome: vec![4; cells], rock: vec![0; cells], ..crate::bake::Map::empty() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12347, n: 3072, m: 384, h: vec![2.0; cells], biome: vec![4; cells], rock: vec![0; cells], table: vec![0.0; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         let _ = std::fs::remove_file(crate::bake::file(-12347, 3072));
         let (mut client, server) = local::<ToServer, ToClient>();
@@ -674,7 +691,7 @@ mod tests {
     #[test]
     fn a_map_download_reports_its_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], rock: vec![0; cells], ..crate::bake::Map::empty() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], rock: vec![0; cells], table: vec![0.0; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         let _ = std::fs::remove_file(crate::bake::file(-12346, 3072));
         let (mut client, server) = local::<ToServer, ToClient>();

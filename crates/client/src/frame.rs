@@ -168,9 +168,9 @@ impl App {
             let my = if self.settings.on(S::InvertY) { -my } else { my };
             // the look is the player's own and turns in the steps, so no frame change makes it mean another way
             self.turn -= mx * sens;
-            // flight is creative's; the server holds to that too
-            self.flying &= self.creative;
-            if phys::free(&self.world, &self.me, self.flying) {
+            // flight is creative's, and a spectator's always (ADR 0202); the server holds to that too
+            self.flying = self.spectator || self.flying && self.creative;
+            if !self.spectator && phys::free(&self.world, &self.me, self.flying) {
                 // out here the mouse pitches the body itself, the head's tilt folded into it, and Q/E roll it
                 self.tilt += std::mem::take(&mut self.pitch) - my * sens;
                 let q = |a: Act| self.settings.held(&self.keys, a) as i32 as f64;
@@ -207,8 +207,8 @@ impl App {
                 }
                 let f0 = self.world.frame_at(self.me.pos);
                 let in_air = !self.me.on_ground;
-                let drains = !self.creative && self.dead.is_none();
-                self.sprinted = crate::play::predict(&mut self.world, &mut self.me, &mut self.hunger, self.creative, drains, &inp);
+                let drains = !self.creative && !self.spectator && self.dead.is_none();
+                self.sprinted = crate::play::predict(&mut self.world, &mut self.me, &mut self.hunger, (self.creative, self.spectator), drains, &inp);
                 // the metres fallen since the ground was left (a flight or a swim is no fall)
                 // (nothing is added in the step that changes the frame the place is told in: `prev` is still
                 // in the old one)
@@ -332,6 +332,10 @@ impl App {
                     for &b in &a.shown {
                         self.streamer.touch_block(&self.world, b);
                     }
+                    // the map works out every edited column again, wherever it is (the server sends every edit)
+                    for &(b, _) in &v {
+                        self.globe.touch(b);
+                    }
                     for &(b, was, m) in &a.heard {
                         self.heard(b, was, m, false);
                     }
@@ -355,6 +359,7 @@ impl App {
                     }
                     for b in self.pred.done(&mut self.world, seq) {
                         self.streamer.touch_block(&self.world, b);
+                        self.globe.touch(b);
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => (self.players, self.globe.others) = (ps.len(), ps),
@@ -399,6 +404,8 @@ impl App {
                     self.reconcile(step, me, hunger, t)
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
+                // spectator mode on or off (ADR 0202): it flies from now on; out of it, flying is creative's again
+                Recv::Msg(ToClient::Spectator(on)) => (self.spectator, self.flying) = (on, on || self.flying && self.creative),
                 Recv::Msg(ToClient::Inventory { creative, slots, water }) => {
                     (self.creative, self.bucket_water) = (creative, water);
                     // the slots once every move sent is answered: until then the prediction stands
@@ -485,6 +492,19 @@ impl App {
                 Recv::Msg(ToClient::Fires(v)) => {
                     for (b, on) in v {
                         self.models.set_state(b, on.then_some("working"));
+                    }
+                }
+                // snow, ice and rock in eighths (ADR 0189): the slabs are laid again once, not each frame
+                Recv::Msg(ToClient::Layers(v)) => {
+                    self.world.snow.apply(&v);
+                    self.slabs_at = None;
+                }
+                // a snow block over a plant gone: the cell is generation's again, its plant drawn
+                Recv::Msg(ToClient::Unedit(v)) => {
+                    for b in v {
+                        self.world.put_edit(b, None);
+                        self.streamer.touch_block(&self.world, b);
+                        self.globe.touch(b);
                     }
                 }
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
@@ -621,10 +641,12 @@ impl App {
                     self.world.set_block(c, r);
                     fx::changed(&mut self.fx, &self.world, c, old, r);
                     self.streamer.touch_block(&self.world, c);
+                    self.globe.touch(c);
                 }
                 continue;
             }
             self.world.set_block(b, m);
+            self.globe.touch(b);
             fx::changed(&mut self.fx, &self.world, b, was, m);
             if self.fx.on && BLOCKS.solid(m) && !BLOCKS.solid(was) {
                 self.grow(b, m);
@@ -1087,7 +1109,8 @@ impl App {
         let proxy_tris = crate::proxy::triangles(&self.models.list.iter().find(|l| l.0.name == crate::models::FIGURE).map_or_else(crate::proxy::plain, |l| crate::proxy::boxes(&l.0.model)));
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
-        let hand = hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu)
+        // (a spectator has no hand: it holds and strikes nothing, ADR 0202)
+        let hand = (hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu) && !self.spectator)
             .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
         let swing = engine::hand::HAND.curve(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
         let now = Instant::now();

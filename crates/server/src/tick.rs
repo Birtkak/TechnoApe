@@ -11,7 +11,8 @@ impl Server {
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
         if let Some(w) = &mut self.weather {
             // the air's runoff into the rivers (W5, ADR 0059), already out of the air's sea term
-            for (reach, units) in w.tick(self.tick, self.world.time) {
+            // (and what the live snow owes the air settled, ADR 0189)
+            for (reach, units) in w.tick_owing(self.tick, self.world.time, &mut self.world.snow.owed) {
                 self.world.water.rain(reach, units);
             }
             self.send_sky();
@@ -78,6 +79,10 @@ impl Server {
             if !fires.is_empty() {
                 link.send(ToClient::Fires(fires));
             }
+            let layers: Vec<(Col, Option<engine::snow::Seen>)> = self.world.snow.seen.iter().map(|(c, s)| (*c, Some(*s))).collect();
+            for part in layers.chunks(EDITS_PART) {
+                link.send(ToClient::Layers(part.to_vec()));
+            }
             let spawn = self.spawn();
             self.clients.push(Client {
                 link,
@@ -88,6 +93,8 @@ impl Server {
                 acked: 0,
                 credit: 0,
                 creative: false,
+                spectator: false,
+                entered: DVec3::ZERO,
                 slots: items::ape(),
                 water: 0,
                 tiles: FxMap::default(),
@@ -119,6 +126,8 @@ impl Server {
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
+        // cells generation's again (a snow block over a plant gone, ADR 0189): sent as `Unedit` after the edits
+        let mut unset: Vec<Block> = Vec::new();
         let mut deaths = Vec::new();
         // ghosts taken over this tick (the Hello arm): not read again, dropped (closing their links) after the loop
         let mut ghosts: Vec<u32> = Vec::new();
@@ -166,7 +175,7 @@ impl Server {
                             self.tell_dig(j, None);
                             self.uncraft(j);
                             let g = &mut self.clients[j];
-                            self.absent.insert(g.player.name.clone(), saved(g));
+                            self.absent.insert(g.player.name.clone(), saved_in(g, &self.world));
                             let line = format!("{} left", std::mem::take(&mut g.player.name));
                             g.slots.iter_mut().for_each(|s| *s = None);
                             g.water = 0;
@@ -226,6 +235,14 @@ impl Server {
                             }
                         }
                     }
+                    // a spectator acts on nothing (ADR 0202): what is answered is refused, the rest ignored
+                    Recv::Msg(ToServer::Edit { seq, .. } | ToServer::Items { seq, .. } | ToServer::Take { seq, .. } | ToServer::Bucket { seq, .. }) if self.clients[i].spectator => {
+                        self.clients[i].done.push((seq, false));
+                        self.clients[i].inv_dirty = true;
+                    }
+                    // (creative too: it would change the mode it leaves to. Kept: Move, for F10 and a teleport; Hand, the
+                    // hotbar slot only)
+                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_) | ToServer::Creative(_)) if self.clients[i].spectator => {}
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         // the steps the client took before this edit came before it: they are taken first, so the
                         // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
@@ -339,7 +356,13 @@ impl Server {
                 let inp = if creative { inp } else { Input { fly: 0.0, ..inp } };
                 if dead { vitals::still(inp) } else { inp }
             };
-            if let Some(inp) = c.input.map(walk) {
+            if let (Some(inp), true) = (c.input, c.spectator) {
+                // a spectator flies through everything and takes nothing (ADR 0202)
+                for _ in 0..steps {
+                    phys::ghost(&self.world, &mut c.phys, &inp, phys::DT);
+                }
+                (c.player.pos, c.player.fwd, c.player.pitch) = (c.phys.pos.to_array(), c.phys.fwd.as_vec3().to_array(), inp.pitch);
+            } else if let Some(inp) = c.input.map(walk) {
                 for _ in 0..steps {
                     // (a player that died in an earlier step of this tick moves no more in it)
                     let inp = if c.vitals.dead.is_some() { vitals::still(inp) } else { inp };
@@ -403,8 +426,12 @@ impl Server {
             self.knock_off(b, m);
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
-        let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
+        let players = self.herd_players();
         let t = self.herds.clock;
+        // a spectator keeps the herds near it awake, but none of them sees it (ADR 0202)
+        for c in self.clients.iter().filter(|c| c.spectator && self.world.frame_at(c.phys.pos) == 0) {
+            self.herds.wake(&self.world, c.phys.pos, t);
+        }
         self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
         self.send_animals(t);
         // once a second stored lava gives its heat to the air and rock round it, and what froze through is basalt
@@ -414,11 +441,12 @@ impl Server {
             // shortcut: the cells over the feet's column only (a 0.6 m body can lean into the next one) and no
             // animals, until a body standing at a freezing edge is seen caught
             let world = &self.world;
-            let taken: Vec<Block> =self.clients.iter()
+            let taken: Vec<Block> = self.clients.iter().filter(|c| !c.spectator)
                 .flat_map(|c| [0.2, 1.0, phys::HEIGHT - 0.1].map(|h| world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * h)))
                 .collect();
             // the air water's phases go by: the live air grid's on the planet; the heat step runs by the world's clock
             // (a time warp of n runs n seconds of it a second)
+            let force = self.force;
             let (world, weather) = (&mut self.world, &self.weather);
             let b0 = world.bodies[0].clone();
             let live = |c: engine::liquid::Col, z: f64| {
@@ -429,6 +457,75 @@ impl Server {
             for (b, was, m) in world.cool_fluids_in(self.warp as f64, |b| taken.contains(&b), Some(&live)) {
                 changed.push((b, m));
                 self.events.push(Event::Edit { at: b, was, now: m, by: None });
+            }
+            // snow in eighths on the columns round the players (ADR 0189) by the same air and clock: the live
+            // air's snowfall where it is under freezing at the column's height, from the air column's account; eight
+            // eighths a block of snow through the edits; the ice and rock short of a block shown with it
+            let feet: Vec<DVec3> = self.clients.iter().map(|c| c.phys.pos).collect();
+            // Where it cannot snow the second is passed over: nothing held, lent or owed, no weather forced, and
+            // round every player on Terra no snow lying in the air's cells and the air over freezing: 2 C to spare,
+            // read at the square's corners and middle 40 m over the ground there or the feet, whichever is higher
+            // (the air cools 0.1 C a metre: a player in a mine reads the surface over it, not its own depth). The
+            // live columns are then made when it can snow, as when a player walks into the cold: with the cell's
+            // lying snow as they join, where the full step's columns, live since it was warm, had none (the review).
+            let snow_due = self.snow_always || force.is_some() || !world.snow.bare() || weather.as_ref().is_some_and(|w| {
+                let reach = engine::snow::LIVE as f64 + 1.0;
+                feet.iter().filter(|p| world.frame_at(**p) == 0).any(|p| {
+                    let (_, f, g) = world.grid_at(*p);
+                    let (feet_r, sea_r) = ((*p - b0.centre).length(), b0.sea.map_or(b0.radius, |s| b0.layer_r(s)));
+                    [(0.0, 0.0), (-reach, -reach), (reach, -reach), (-reach, reach), (reach, reach)].iter().any(|&(a, b)| {
+                        let d = b0.dir(f, g.x + a, g.y + b);
+                        w.lying(w.column(d)) > 0.0 || w.here(d, feet_r.max(b0.height(d)) - sea_r + 40.0).temp < 2.0
+                    })
+                })
+            });
+            let near = if snow_due { engine::snow::near(world, &feet) } else { Default::default() };
+            let wet: std::collections::BTreeSet<Col> = near.iter().copied().filter(|&c| world.water.open_water(c)).collect();
+            // a layer's floor cell a block of snow may be set in: empty air no player stands in (a plant, a torch or a
+            // pair of feet keeps it at seven eighths)
+            let room: std::collections::BTreeMap<(Col, i32), bool> = near
+                .iter()
+                .filter_map(|&c| {
+                    let z = world.snow.cols.get(&c)?.floor;
+                    let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), z) };
+                    (z != engine::snow::NOWHERE && world.block(b) == AIR && !taken.contains(&b)).then_some(((c, z), world.edit(b).is_none()))
+                })
+                .collect();
+            let sea = b0.sea.map_or(b0.radius, |s| b0.layer_r(s));
+            let here = |c: Col, z: i32| {
+                let w = weather.as_ref().filter(|_| c.body() == 0 && !wet.contains(&c))?;
+                let d = b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
+                let cell = w.column(d);
+                // a forced weather (`/weather`, for filming) lays and melts the snow near the players too; the grid
+                // and the water's heat stay the air's own
+                let h = force.map_or(w.here(d, b0.layer_r(z as f64) - sea), |f| f.here(w.here(d, b0.layer_r(z as f64) - sea), w.view().theta[cell]));
+                let fall = if h.temp < 0.0 { h.rain.max(0.0) as f64 / 3600.0 * engine::snow::PER_MM } else { 0.0 };
+                Some(engine::snow::Here { cell: cell as u32, formula: w.lying(cell) as f64 * engine::snow::PER_MM, fall, has: w.has(cell), room: room.contains_key(&(c, z)), fresh: room.get(&(c, z)).copied().unwrap_or(false) })
+            };
+            let snow_air = |c: Col, z: f64| {
+                let t = live(c, z)?;
+                let (Some(ft), Some(w)) = (force.and_then(|f| f.temp), weather.as_ref()) else { return Some(t) };
+                let cell = w.column(b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5));
+                Some(t - w.view().theta[cell] as f64 + ft as f64)
+            };
+            if !snow_due {
+                world.show_frozen();
+            }
+            for (b, was, m) in if snow_due { world.step_snow(self.warp as f64, &near, Some(&snow_air), &here) } else { Vec::new() } {
+                match m {
+                    Some(m) => {
+                        changed.push((b, m));
+                        self.events.push(Event::Edit { at: b, was, now: m, by: None });
+                    }
+                    None => unset.push(b),
+                }
+            }
+            // a column is sent when it passes an eighth: a snowfall sends a few a second, never the whole view
+            let layers = world.snow.changes();
+            if !layers.is_empty() {
+                for c in &self.clients {
+                    c.link.send(ToClient::Layers(layers.clone()));
+                }
             }
             // lava meeting water boiled it off there (liquids.md step 4): its steam, by the events' path to the clients
             for (at, kind) in self.world.take_boils() {
@@ -461,6 +558,21 @@ impl Server {
         for (b, _) in &changed {
             self.world.watch_ice_near(*b);
         }
+        // a live column's snow finds its floor again after an edit; a packed block of snow taken away soaks in
+        let snow = BLOCKS.id("snow");
+        for &(b, m) in &changed {
+            self.world.snow.touch(World::col(b));
+            // a block of snow over a plant dug: the snow goes, the plant is back (the cell generation's again)
+            if m != snow && self.world.snow.unpacked(World::col(b), b.pos.z) == Some(true) && m == AIR {
+                self.world.put_edit(b, None);
+                self.world.regap(b);
+                unset.push(b);
+            }
+        }
+        for &b in &unset {
+            self.world.snow.touch(World::col(b));
+            self.resettle(Block { pos: b.pos + glam::IVec3::Z, ..b });
+        }
         // piles over a dug cell fall, a pile in a placed one rises (ADR 0074); then every player picks up
         for (b, m) in &changed {
             self.resettle(Block { pos: b.pos + glam::IVec3::Z * !BLOCKS.solid(*m) as i32, ..*b });
@@ -481,6 +593,11 @@ impl Server {
         for part in changed[..mine].chunks(EDITS_PART).chain(changed[mine..].chunks(EDITS_PART)) {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(part.to_vec()));
+            }
+        }
+        for part in unset.chunks(EDITS_PART) {
+            for c in &self.clients {
+                c.link.send(ToClient::Unedit(part.to_vec()));
             }
         }
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
@@ -564,9 +681,10 @@ impl Server {
             for c in &mut self.clients {
                 c.sent_hand = holds(c);
             }
-            let players: Vec<Player> = self.clients.iter().map(|c| Player { hand: c.sent_hand, ..c.player.clone() }).collect();
+            let players: Vec<(bool, Player)> = self.clients.iter().map(|c| (c.spectator, Player { hand: c.sent_hand, ..c.player.clone() })).collect();
             for c in &self.clients {
-                c.link.send(ToClient::Players(players.clone()));
+                // a spectator is sent to itself only (ADR 0202)
+                c.link.send(ToClient::Players(players.iter().filter(|(ghost, p)| !ghost || p.id == c.player.id).map(|p| p.1.clone()).collect()));
             }
         }
         self.tick += 1;
@@ -597,6 +715,11 @@ impl Server {
         }
     }
 
+    /// The players the herds wake and flee from (ADR 0083): feet and motion of those on Terra, a spectator not one.
+    pub(super) fn herd_players(&self) -> Vec<(DVec3, DVec3)> {
+        self.clients.iter().filter(|c| !c.spectator && self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect()
+    }
+
     /// The journal's triggers (draft ADR journal-data), once a tick after the events: `have:` from the slots
     /// when they changed, `look:` from the block the player's look meets every `LOOK_EVERY` ticks. Not for a
     /// creative player (its slots are a builder's), a dead one, or one without its name yet.
@@ -604,7 +727,7 @@ impl Server {
         let j = &*engine::journal::JOURNAL;
         let look = self.tick % LOOK_EVERY == 0;
         let world = &self.world;
-        for c in self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none() && !c.player.name.is_empty()) {
+        for c in self.clients.iter_mut().filter(|c| !c.creative && !c.spectator && c.vitals.dead.is_none() && !c.player.name.is_empty()) {
             // and on the tick its name came (`told` none yet): what it held before is no change of this tick
             if c.inv_dirty || c.told.is_none() {
                 for s in c.slots.iter().flatten() {
@@ -659,7 +782,7 @@ impl Server {
             let feet = c.phys.pos;
             self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), c.slots.into_iter().flatten().collect(), (0, 0));
         } else {
-            self.absent.insert(c.player.name.clone(), saved(&c));
+            self.absent.insert(c.player.name.clone(), saved_in(&c, &self.world));
             self.say(format!("{} left", c.player.name));
         }
     }
@@ -670,15 +793,20 @@ impl Server {
 /// A death's line for everyone goes to `deaths`.
 /// Takes client `c`'s next queued step, if any (`dead`: as it was when the tick's steps began).
 fn queued_step(c: &mut Client, world: &mut World, warp: u64, dead: bool, deaths: &mut Vec<String>) -> bool {
-    let Some((seq, inp)) = c.queue.pop_front() else { return false };
-    let inp = if c.creative { inp } else { Input { fly: 0.0, ..inp } };
-    let inp = if dead { vitals::still(inp) } else { inp };
-    let mut inp = vitals::gate(inp, c.vitals.hunger, c.creative);
+    let Some((seq, mut inp)) = c.queue.pop_front() else { return false };
     // at the client's time when it is near this clock (it predicted the step then), else at this one
     let near = 2.0 * warp as f64; // two seconds of real time
     if (inp.t - world.time).abs() > near {
         inp.t = 0.0;
     }
+    if c.spectator {
+        phys::ghost_at(world, &mut c.phys, &inp, phys::DT);
+        (c.acked, c.player.pitch) = (seq, inp.pitch);
+        return true;
+    }
+    let inp = if c.creative { inp } else { Input { fly: 0.0, ..inp } };
+    let inp = if dead { vitals::still(inp) } else { inp };
+    let inp = vitals::gate(inp, c.vitals.hunger, c.creative);
     let before = c.phys;
     let sprinted = phys::step_at(world, &mut c.phys, &inp, phys::DT);
     live(c, world, &before, &inp, sprinted, deaths);

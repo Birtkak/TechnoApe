@@ -264,7 +264,7 @@ pub fn wet_or_over(body: &Body, face: u8, i: i32, j: i32, row: &Row) -> bool {
     }
     if let Some(r) = row.water {
         // water standing over the ground (`water_at` names the sea for every dry column too)
-        let wet = |i: i32, j: i32| body.water_at(face, i, j).is_some_and(|w| w.0 > body.first_air(body.col_height(face, i, j)) as f64);
+        let wet = |i: i32, j: i32| body.open_water(face, i, j);
         if (-r..=r).flat_map(|a| (-r..=r).map(move |c| (i + a, j + c))).any(|(i, j)| (0..body.n).contains(&i) && (0..body.n).contains(&j) && wet(i, j)) {
             return true;
         }

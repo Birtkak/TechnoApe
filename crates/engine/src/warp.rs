@@ -41,17 +41,63 @@ pub fn at(a: f64, b: f64) -> ([f64; 2], [[f64; 2]; 2]) {
     ([sa * v(0), sb * v(1)], [[da(0), s * da(1)], [s * db(0), db(1)]])
 }
 
+/// `at`'s (da, db) alone, to the same bits: what every map read of a column asks (some twenty a column of a
+/// height tile), without the four derivatives only `unwarp`'s Newton steps use.
+pub fn value(a: f64, b: f64) -> [f64; 2] {
+    read(&TABLE, a, b)
+}
+
+/// A table of `N` x `N` pairs read at face point (a, b) as `at` reads the warp's: bilinear on |a| and |b|, the
+/// signs put back, held past the face's edge.
+fn read(t: &[[f64; 2]], a: f64, b: f64) -> [f64; 2] {
+    let h = (N - 1) as f64 * 0.5;
+    let (sa, sb) = (if a < 0.0 { -1.0 } else { 1.0 }, if b < 0.0 { -1.0 } else { 1.0 });
+    let (x, y) = ((a.abs().min(1.0) + 1.0) * h, (b.abs().min(1.0) + 1.0) * h);
+    let (i0, j0) = ((x.floor() as usize).min(N - 2), (y.floor() as usize).min(N - 2));
+    let (fx, fy) = (x - i0 as f64, y - j0 as f64);
+    let (r0, r1) = (&t[i0 * N + j0..i0 * N + j0 + 2], &t[(i0 + 1) * N + j0..(i0 + 1) * N + j0 + 2]);
+    let mix = |u: f64, v: f64, f: f64| u * (1.0 - f) + v * f;
+    let v = |k: usize| mix(mix(r0[0][k], r1[0][k], fx), mix(r0[1][k], r1[1][k], fx), fy);
+    [sa * v(0), sb * v(1)]
+}
+
 /// (a, b) warped with strength w.
 pub fn warp(a: f64, b: f64, w: f64) -> (f64, f64) {
-    let (v, _) = at(a, b);
+    let v = value(a, b);
     (a + w * v[0], b + w * v[1])
 }
 
-/// The (a, b) that `warp` moves to (ta, tb): Newton on the bilinear cell from one fixed-point step, to 1e-14.
-/// (Plain fixed-point steps crawl near a corner, where the table's slope is about -0.75.)
+/// The whole warp's inverse at the table's points, as what it moves each by: `unwarp`'s first guess, some 1e-5
+/// of a face from the answer where one fixed-point step was 1e-2 to 1e-3, so two Newton steps do where four did
+/// (`locate` is most of what the conformal grid costs the physics: 147 ns against the old grid's 38, `grid_cost`).
+static INVERSE: LazyLock<Vec<[f64; 2]>> = LazyLock::new(|| {
+    let at = |k: usize| -1.0 + 2.0 * k as f64 / (N - 1) as f64;
+    (0..N * N)
+        .map(|p| {
+            let (ta, tb) = (at(p / N), at(p % N));
+            let v = value(ta, tb);
+            let (a, b) = newton(ta, tb, 1.0, ta - v[0], tb - v[1]);
+            [a - ta, b - tb]
+        })
+        .collect()
+});
+
+/// The (a, b) that `warp` moves to (ta, tb): Newton on the bilinear cell, to 1e-14, from the inverse's own table at
+/// the whole warp (else from one fixed-point step; plain fixed-point steps crawl near a corner, where the table's
+/// slope is about -0.75). A function of its arguments alone: no state, the same bits on every thread and machine.
 pub fn unwarp(ta: f64, tb: f64, w: f64) -> (f64, f64) {
-    let (v, _) = at(ta, tb);
-    let (mut a, mut b) = (ta - w * v[0], tb - w * v[1]);
+    let (a, b) = if w == 1.0 {
+        let g = read(&INVERSE, ta, tb);
+        (ta + g[0], tb + g[1])
+    } else {
+        let v = value(ta, tb);
+        (ta - w * v[0], tb - w * v[1])
+    };
+    newton(ta, tb, w, a, b)
+}
+
+/// `unwarp`'s Newton steps from (a, b).
+fn newton(ta: f64, tb: f64, w: f64, mut a: f64, mut b: f64) -> (f64, f64) {
     for _ in 0..40 {
         let (v, d) = at(a, b);
         let (ra, rb) = (a + w * v[0] - ta, b + w * v[1] - tb);
@@ -199,6 +245,55 @@ mod tests {
             }
         }
         assert!(worst[3] < 0.005 && worst[2] > 0.005, "columns off after 0..5 Newton steps: {worst:?}");
+    }
+
+    /// The grid follows from the world's generation: from CONFORMAL every body's is warped, before it none.
+    #[test]
+    fn the_generation_chooses_the_grid() {
+        use crate::world::{World, CONFORMAL, GENERATION};
+        assert!(GENERATION >= CONFORMAL);
+        for (gen, warp) in [(CONFORMAL - 1, 0.0), (CONFORMAL, 1.0)] {
+            let w = World::with_grid(6144, crate::bodies::moon_columns(6144), 1, None, None, 0.0, gen);
+            for b in w.bodies.iter() {
+                assert_eq!(b.warp, warp, "generation {gen}: body {} has warp {}", b.name, b.warp);
+            }
+        }
+    }
+
+    /// On a generation-13 world every body's block tops are square at a face's middle, the middle of a face edge
+    /// and a fifth of the way in from it (where the old grid has 1.09 x 0.77 and 1.09 x 0.96 m), the 4 km and
+    /// 8 km worlds (Terra 6144 and 12288, Luna 3328 on the 8 km one, Mars, the icy moon).
+    #[test]
+    fn generation_13_block_tops_are_square() {
+        use crate::world::{World, CONFORMAL};
+        let mut sizes = Vec::new();
+        for planet in [6144, 12288] {
+            let w = World::with_grid(planet, crate::bodies::moon_columns(planet), 1, None, None, 0.0, CONFORMAL);
+            for b in w.bodies.iter().filter(|b| !b.gas) {
+                let n = b.n as f64;
+                sizes.push(b.n);
+                for f in 0..6 {
+                    for (i, j) in [(n / 2.0, n / 2.0), (n - 1.0, n / 2.0), (0.0, n / 2.0), (n * 0.8, n / 2.0), (n / 2.0, n * 0.2)] {
+                        let (u, v, ang) = block(b, f, i, j);
+                        assert!((u / v - 1.0).abs() < 0.02 && (ang - 90.0).abs() < 1.0, "{} (n {}) face {f} ({i}, {j}): {u:.3} x {v:.3} m at {ang:.2} degrees", b.name, b.n);
+                    }
+                }
+            }
+        }
+        assert!(sizes.contains(&3328) && sizes.contains(&12288), "{sizes:?}");
+    }
+
+    /// `value` is `at`'s first half to the bit, over the face, past its edges and at mirrored points.
+    #[test]
+    fn value_is_ats_value_to_the_bit() {
+        for k in 0..20_000u32 {
+            let f = |s: u32| (k.wrapping_mul(s) % 240_001) as f64 / 100_000.0 - 1.2;
+            let (a, b) = (f(2_654_435_761), f(40_503));
+            for (a, b) in [(a, b), (-a, b), (a, -b), (b, a)] {
+                let (want, got) = (super::at(a, b).0, super::value(a, b));
+                assert_eq!((got[0].to_bits(), got[1].to_bits()), (want[0].to_bits(), want[1].to_bits()), "at {a} {b}");
+            }
+        }
     }
 
     /// The table's derivatives are the bilinear's own, and `unwarp` inverts `warp` (to 1e-12 of a face).

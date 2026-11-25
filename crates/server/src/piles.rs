@@ -39,6 +39,11 @@ impl Server {
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
+        // a dig of one cell with snow in eighths on it takes the snow, not the block (ADR 0189)
+        // shortcut: at once, whatever the block's dig time; the snow's own once a layer is a cell a ray can hit
+        if m == AIR && shape.min == shape.max && self.world.snow.dig(Col::new(shape.body, shape.face, shape.min.x, shape.min.y), shape.min.z) {
+            return true;
+        }
         // a survival dig is taken once it was held for its time (ADR 0034), with the tool in hand (ADR 0110).
         // shortcut: the time held counts whatever was in hand meanwhile, so a tool taken up at the end of a
         // bare-hand hold digs at once; a hold per tool when that matters
@@ -51,9 +56,9 @@ impl Server {
                 return false;
             }
         }
-        // a solid block never goes where it would trap a player
+        // a solid block never goes where it would trap a player (a spectator is in no cell: it passes through)
         let (world, clients) = (&self.world, &self.clients);
-        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
+        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| !c.spectator && phys::holds(world, &c.phys, b)));
         // a block that hangs (a torch, ADR 0117) goes only where a floor or a wall holds it, and never into water
         if BLOCKS.get(m).is_some_and(|d| d.hangs) && cells.iter().any(|&(b, _)| engine::fall::held_from(world, b).is_none() || world.water_surface(world.block_centre(b)).is_some()) {
             return false;
@@ -292,7 +297,7 @@ impl Server {
             return;
         }
         let world = &self.world;
-        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none())
+        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && !c.spectator && c.vitals.dead.is_none())
             .map(|c| (world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * phys::EYE), c)).collect();
         for &(b, m) in &rocks {
             for (eye, c) in heads.iter_mut() {
@@ -424,7 +429,8 @@ impl Server {
     /// feet's face, so a pile just over a cube face's edge waits until the player steps across.
     pub(super) fn pick_up(&mut self) {
         let Server { clients, piles, piles_changed, world, tick, .. } = self;
-        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none()) {
+        // (a spectator picks up nothing, ADR 0202)
+        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none() && !c.spectator) {
             let feet = c.phys.pos;
             let mid = world.block_at(feet + phys::up(world, feet) * 0.5);
             for (dz, dy, dx) in (-1..=1).flat_map(|z| (-1..=1).flat_map(move |y| (-1..=1).map(move |x| (z, y, x)))) {

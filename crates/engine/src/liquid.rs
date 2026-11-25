@@ -193,6 +193,61 @@ pub trait Ground {
     fn ice(&self, _c: Col, _z: i32) -> bool {
         false
     }
+    /// Whether the world has ground water at all (ADR 0190: a map with a table); without, `seep` does nothing.
+    fn ground_water(&self) -> bool {
+        false
+    }
+    /// How many times faster ground water runs than the real rate (ADR 0190, the calendar's pace: it is rain-driven,
+    /// so it keeps the calendar's clock): the real year (`REAL_YEAR`) over the game's. Heat no longer uses it (ADR 0200).
+    fn calendar(&self) -> f64 {
+        1.0
+    }
+    /// The aquifer under column `c` (`Aq`, its `table` the column's), None where there is no ground water there.
+    fn aquifer(&self, _c: Col) -> Option<Aq> {
+        None
+    }
+    /// The aquifer of map cell `cell` at rest (`Aq::cell`), for a touched cell's neighbours.
+    fn aquifer_cell(&self, _cell: u64) -> Option<Aq> {
+        None
+    }
+}
+
+/// Micro-units to a unit (ADR 0190, the spike `prototypes/ground-water`): ground water moves far less than a unit a
+/// step, so the aquifer is counted finer and trades whole units with open water.
+pub const SUB: i64 = 1 << 16;
+/// The real year, s (a Julian year): ground water's pace is it over the sky's year (`Ground::calendar`).
+pub const REAL_YEAR: f64 = 365.25 * 86_400.0;
+/// What a 1 m column is as a well, m (Peaceman's equivalent radius of a square block, 0.198 of its side).
+const R_W: f64 = 0.198;
+
+/// The aquifer at a place (ADR 0190; `Ground::aquifer`): its map cell (a key) and that cell's four neighbours', the
+/// cell's table at rest and the column's (layers), the aquifer's floor (layers), its hydraulic conductivity (m/s) and
+/// specific yield, and the cell's width (m).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Aq {
+    pub cell: u64,
+    pub nb: [u64; 4],
+    pub rest: f64,
+    pub table: f64,
+    pub base: f64,
+    pub k: f64,
+    pub sy: f64,
+    pub dx: f64,
+}
+
+impl Aq {
+    /// Micro-units a layer of head holds in the cell.
+    fn store(&self) -> f64 {
+        self.sy * self.dx * self.dx * (U * SUB) as f64
+    }
+}
+
+/// A touched cell of the aquifer (`Liquids::aquifer`): its water over its table's rest, micro-units (negative: drawn
+/// down), and by well (column, gap floor) what it gave the well short of a unit.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Cell {
+    pub dev: i64,
+    pub owed: std::collections::BTreeMap<(Col, i32), i64>,
 }
 
 /// `Ground::heat` where nothing says otherwise (a test box, the noise land without a map's climate), C.
@@ -518,6 +573,13 @@ pub struct Liquids {
     /// Units of lava the chambers poured (`World::erupt`): carried in from below, so `counted_of(lava)` plus what of
     /// it `froze` and boiled to `vapour` is this plus what buckets brought.
     pub erupted: i64,
+    /// Ground water off its rest (ADR 0190; `seep`): the touched map cells. Empty in a world without a table.
+    pub aquifer: std::collections::BTreeMap<u64, Cell>,
+    /// Units the aquifer took in from stored water (negative: gave it): counted, as `sea_extra` is.
+    pub ground_extra: i64,
+    /// Micro-units the aquifer at rest round the touched cells gave them (its formula, an open edge): with it the
+    /// aquifer's own ledger, `ground_ledger`, is 0.
+    pub rim: i64,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {
@@ -535,6 +597,10 @@ impl Liquids {
     /// The gaps of column `c` with their water, if it is stored.
     pub fn column(&self, c: Col) -> Option<impl Iterator<Item = &Node>> {
         self.cols.get(&c).map(|ids| ids.iter().map(|&i| &self.nodes[i as usize]))
+    }
+    /// Column c holds stored fluid in its gap open to the sky (where snow would lie), not in a cave under it.
+    pub fn open_water(&self, c: Col) -> bool {
+        self.column(c).is_some_and(|mut n| n.any(|n| n.water > 0 && n.ceil == OPEN))
     }
     /// All water that differs from generation, sorted: for saves, hashes and a joining client.
     pub fn all(&self) -> Vec<ColWater> {
@@ -585,7 +651,138 @@ impl Liquids {
     /// The water that differs from the seed's: changed only by water carried in or out (a bucket, creative,
     /// later rain and steam), never by flowing (ADR 0020).
     pub fn counted(&self) -> i64 {
-        self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>() + self.rain_held.values().sum::<i64>() - self.rained
+        // (generation's water in caves under the table is `gen_other`'s, ADR 0190: 0 in a world without one)
+        let caves = self.gen_other.get(&crate::fluids::WATER).copied().unwrap_or(0);
+        self.total() - self.gen_total - caves + self.sea_extra + self.reach_extra.values().sum::<i64>() + self.rain_held.values().sum::<i64>() - self.rained + self.ground_extra
+    }
+    /// The aquifer's own ledger (ADR 0190): its touched cells' water off rest and what they owe their wells, less what
+    /// the rest round them gave and what it took in from stored water, in micro-units: always 0.
+    pub fn ground_ledger(&self) -> i64 {
+        let off: i64 = self.aquifer.values().map(|c| c.dev + c.owed.values().sum::<i64>()).sum();
+        off - self.rim - SUB * self.ground_extra
+    }
+
+    /// `dt` seconds of ground water (ADR 0190; the server's, once a second, at the calendar's pace, `Ground::calendar`):
+    /// every stored gap of water alone whose floor lies under its column's table is a well in its map cell, and trades
+    /// with it by Peaceman's well index, Q = 2 pi K b / ln(0.198 dx / r_w) (head of the cell less the gap's), never
+    /// past the cell's head; whole units move, what is short of one waits in the cell. A touched cell draws from its
+    /// four neighbours by Darcy (K b, the harmonic mean of K and the mean thickness), each one untouched at its table's
+    /// rest; a touched cell back within 1/64 m of its rest with nothing owed is dropped, its last bit given to the rest.
+    /// shortcut: the cell's head rises over the ground without seeping (water poured into a well runs off through the
+    /// rim), only its four neighbours are drawn from (a pump's wider cone needs more), a layered gap takes no part.
+    pub fn seep(&mut self, g: &impl Ground, dt: f64) {
+        if !g.ground_water() {
+            return;
+        }
+        let (pace, um) = (g.calendar(), (U * SUB) as f64);
+        let mut cols: Vec<Col> = self.cols.keys().copied().collect();
+        cols.sort_unstable();
+        let mut wells: Vec<(u64, (Col, i32))> = Vec::new();
+        for c in cols {
+            let Some(aq) = g.aquifer(c) else { continue };
+            for a in self.cols[&c].clone() {
+                let n = &self.nodes[a as usize];
+                if n.stack != 1 || (n.water > 0 && n.kind != crate::fluids::WATER) || self.heat.contains_key(&a) || n.floor as f64 >= aq.table {
+                    continue;
+                }
+                let dev = self.aquifer.get(&aq.cell).map_or(0, |x| x.dev);
+                let lift = dev as f64 / aq.store();
+                let (h, head) = (aq.table + lift, n.head() as f64 / U as f64);
+                let diff = h - head;
+                if diff.abs() * (U as f64) < 1.0 {
+                    continue;
+                }
+                let b = (aq.rest + lift - aq.base).max(0.0);
+                let wi = 2.0 * std::f64::consts::PI * aq.k * b / (0.198 * aq.dx / R_W).ln();
+                // never past the cell's head: an open gap rises a unit a unit, a full closed one K units of head a unit
+                let full = n.ceil != OPEN && n.fill() >= n.cap();
+                let most = ((diff.abs() * U as f64 / if full { K as f64 } else { 1.0 }) as i64) * SUB;
+                let mut q = ((wi * diff * dt * pace * um) as i64).clamp(-most, most);
+                let owed = self.aquifer.get(&aq.cell).and_then(|x| x.owed.get(&(c, n.floor))).copied().unwrap_or(0);
+                if q > 0 {
+                    // no more than the cell holds over the gap's floor
+                    q = q.min((((aq.rest + lift - (n.floor as f64).max(aq.base)) * aq.store()) as i64).max(0));
+                } else {
+                    q = q.max(-(n.water * SUB + owed));
+                }
+                if q == 0 {
+                    continue;
+                }
+                let cell = self.aquifer.entry(aq.cell).or_default();
+                cell.dev -= q;
+                let o = cell.owed.entry((c, n.floor)).or_default();
+                *o += q;
+                let whole = *o / SUB;
+                *o -= whole * SUB;
+                if *o == 0 {
+                    cell.owed.remove(&(c, n.floor));
+                }
+                wells.push((aq.cell, (c, n.floor)));
+                if whole != 0 {
+                    let n = &mut self.nodes[a as usize];
+                    n.water += whole;
+                    n.kind = if n.water == 0 { 0 } else { crate::fluids::WATER };
+                    self.ground_extra -= whole;
+                    self.wake(a);
+                    self.dirty.insert(c, ());
+                }
+            }
+        }
+        wells.sort_unstable();
+        // a well that took no part this second gives back what it was owed
+        for (&key, cell) in self.aquifer.iter_mut() {
+            let mut back = 0;
+            cell.owed.retain(|w, o| {
+                let kept = wells.binary_search(&(key, *w)).is_ok();
+                if !kept {
+                    back += *o;
+                }
+                kept
+            });
+            cell.dev += back;
+        }
+        // the cells by Darcy, each with its neighbours: a touched one by both heads, an untouched one at its rest
+        let keys: Vec<u64> = self.aquifer.keys().copied().collect();
+        for key in keys {
+            let Some(me) = g.aquifer_cell(key) else {
+                // no aquifer there any more: its water off rest to the rest
+                let cell = self.aquifer.remove(&key).expect("listed");
+                self.rim -= cell.dev + cell.owed.values().sum::<i64>();
+                continue;
+            };
+            for nk in me.nb {
+                let Some(o) = g.aquifer_cell(nk) else { continue };
+                let touched = self.aquifer.contains_key(&nk);
+                if touched && nk < key {
+                    continue;
+                }
+                let hm = me.rest + self.aquifer[&key].dev as f64 / me.store();
+                let ho = o.rest + if touched { self.aquifer[&nk].dev as f64 / o.store() } else { 0.0 };
+                let kh = if me.k > 0.0 && o.k > 0.0 { 2.0 * me.k * o.k / (me.k + o.k) } else { 0.0 };
+                let bm = 0.5 * ((hm - me.base).max(0.0) + (ho - o.base).max(0.0));
+                // never past equal heads (a fast rock's K moves more in a step than levels the pair): an untouched
+                // neighbour holds its rest, a touched one gives what it takes
+                let level = ((ho - hm) / (1.0 / me.store() + if touched { 1.0 / o.store() } else { 0.0 })) as i64;
+                let q = ((kh * bm * (ho - hm) * dt * pace * um) as i64).clamp(level.min(0), level.max(0));
+                self.aquifer.get_mut(&key).expect("listed").dev += q;
+                if touched {
+                    self.aquifer.get_mut(&nk).expect("listed").dev -= q;
+                } else {
+                    self.rim += q;
+                }
+            }
+        }
+        let mut gone = Vec::new();
+        for (&key, cell) in &self.aquifer {
+            let band = g.aquifer_cell(key).map_or(0.0, |a| a.store() / 64.0);
+            if cell.owed.is_empty() && (cell.dev.abs() as f64) <= band {
+                gone.push((key, cell.dev));
+            }
+        }
+        for (key, dev) in gone {
+            self.aquifer.remove(&key);
+            self.rim -= dev;
+        }
     }
     /// Rain (or a spring) brings `units` into reach `acct` (`rain_held`; W5: the air's runoff, `Weather::tick`):
     /// it raises the reach's live water and runs on down to the sea.
@@ -1098,7 +1295,9 @@ impl Liquids {
         let Some(ids) = self.cols.get(&c).cloned() else {
             let (lo, hi) = g.generated(c);
             let other = g.generated_other(c);
-            let wet = lo < hi || !other.is_empty() || g.neighbours(c).iter().flatten().any(|d| match self.cols.get(d) {
+            // (a column dug under its table is stored too, dry: it fills from the aquifer, `seep`; ADR 0190)
+            let well = || g.aquifer(c).is_some_and(|a| g.gaps(c).iter().any(|&(f, _)| (f as f64) < a.table));
+            let wet = lo < hi || !other.is_empty() || well() || g.neighbours(c).iter().flatten().any(|d| match self.cols.get(d) {
                 Some(ids) => ids.iter().any(|&i| self.nodes[i as usize].water > 0),
                 None => {
                     let (lo, hi) = g.generated(*d);
@@ -1743,10 +1942,12 @@ impl Liquids {
             }
             None => {
                 let (lo, hi) = g.generated(c);
-                if lo >= hi || (layer * U as f64) < lo as f64 {
-                    return None;
+                if lo < hi && (layer * U as f64) >= lo as f64 {
+                    hi
+                } else {
+                    // generation's water in a cave under the table (ADR 0190; none in a world without one)
+                    g.generated_other(c).into_iter().find(|w| w.3 == crate::fluids::WATER && (w.0 as f64..w.1 as f64).contains(&(layer * U as f64)))?.1
                 }
-                hi
             }
         };
         let s = top as f64 / U as f64;
@@ -3841,5 +4042,60 @@ mod tests {
         }
         let ms = t.elapsed().as_secs_f64() * 1000.0 / n as f64;
         println!("{{\"liquid_step_ms\":{ms:.3},\"stored\":{},\"awake\":{}}}", w.stored(), w.awake());
+    }
+
+    /// An aquifer of five map cells, a cross round cell 0, for `seep` alone (ADR 0190): sandstone-like yield, a fast
+    /// rock's K, 50 m thick, at the calendar's pace of 52.
+    struct Cross {
+        k: f64,
+    }
+    impl Ground for Cross {
+        fn gaps(&self, _c: Col) -> Vec<(i32, i32)> {
+            vec![(0, OPEN)]
+        }
+        fn generated(&self, _c: Col) -> (i64, i64) {
+            (0, 0)
+        }
+        fn neighbours(&self, _c: Col) -> [Option<Col>; 4] {
+            [None; 4]
+        }
+        fn ground_water(&self) -> bool {
+            true
+        }
+        fn calendar(&self) -> f64 {
+            52.0
+        }
+        fn aquifer_cell(&self, cell: u64) -> Option<Aq> {
+            let nb = if cell == 0 { [1, 2, 3, 4] } else { [0, 99, 99, 99] };
+            (cell <= 4).then_some(Aq { cell, nb, rest: 50.0, table: 50.0, base: 0.0, k: self.k, sy: 0.2, dx: 8.0 })
+        }
+    }
+
+    /// A touched cell a metre over its rest goes back to it and never past: with the fastest K `rocks.toml` allows
+    /// (1e-2 m/s) a second's Darcy between cells moves more than levels them, so unbounded it swings and grows; bounded
+    /// by what levels each pair it settles, the ledger exact every second.
+    #[test]
+    fn a_touched_cell_levels_with_its_neighbours_and_never_swings_past_them() {
+        for k in [1e-5, 1e-2] {
+            let g = Cross { k };
+            let mut w = Liquids::default();
+            let store = g.aquifer_cell(0).unwrap().store();
+            let up = store as i64;
+            w.aquifer.insert(0, Cell { dev: up, ..Cell::default() });
+            w.rim = up;
+            let mut last = up;
+            for s in 0..200 {
+                w.seep(&g, 1.0);
+                assert_eq!(w.ground_ledger(), 0, "K {k}: the ledger at {s} s");
+                let dev = w.aquifer.get(&0).map_or(0, |c| c.dev);
+                for nk in 1..=4 {
+                    let other = w.aquifer.get(&nk).map_or(0, |c| c.dev);
+                    assert!(other >= 0 && other <= up, "K {k}: cell {nk} at {other} after {s} s");
+                }
+                assert!(dev >= 0 && dev <= last, "K {k}: {dev} after {last} at {s} s, a metre is {up}");
+                last = dev;
+            }
+            println!("K {k}: cell 0 at {:.4} m over its rest after 200 s, {} cells touched", last as f64 / store, w.aquifer.len());
+        }
     }
 }

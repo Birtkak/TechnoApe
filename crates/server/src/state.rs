@@ -10,9 +10,9 @@ impl Server {
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
         Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
     }
-    /// `baked` on the block grid warped by `warp` (the conformal grid's trial, ADR 0131; `warp=`). The warp is in
-    /// no save and no message: a client must be given the same `warp=`. `gen`: the world's generation (`Body::gen`),
-    /// the newest unless `gen=` or `mantle=0` (`gen_arg`); the save and the welcome say it.
+    /// `baked`, the world of generation `gen` (`Body::gen`): the newest unless `gen=` or `mantle=0` (`gen_arg`); the
+    /// save and the welcome say it, and the block grid follows from it (`world::grid_warp`, ADR 0131). `warp`
+    /// warps the grid of a world of an earlier generation (tests; it is in no save).
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
         let lazy = World::with_grid_lazy(planet_n, moon_n, seed, Some(engine::bake::get_at(seed, planet_n, gen)), Some(engine::bake::luna::get(seed, moon_n)), warp, gen, true);
         Server::with_world(lazy, seed, accept)
@@ -89,6 +89,7 @@ impl Server {
             sky: Vec::new(),
             sky_at: None,
             force: None,
+            snow_always: false,
             piles: BTreeMap::new(),
             piles_changed: Vec::new(),
             item_made: BTreeMap::new(),
@@ -147,6 +148,8 @@ impl Server {
         (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (water.chambers, water.erupted) = save.chambers.clone();
         water.crust = save.crust.iter().map(|&(c, k, f, u)| ((c, k), (f, u))).collect();
+        (water.ground_extra, water.rim) = (save.ground.0, save.ground.1);
+        water.aquifer = save.ground.2.iter().cloned().collect();
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -160,7 +163,8 @@ impl Server {
                 Err(e) => eprintln!("[technoape-server] the save's air does not fit its map ({e}): it starts from the map's"),
             }
         }
-        s.air0 = s.weather.as_ref().map_or(0, |w| w.ledger()) + s.world.water.rained as i128;
+        s.world.snow.restore(&save.snow);
+        s.air0 = s.weather.as_ref().map_or(0, |w| w.ledger()) + s.world.water.rained as i128 + (s.world.snow.lent - s.world.snow.owing()) as i128;
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
         // a save from before Luna's grid and the inertial frame moved in the shared coordinates (ADR 0041,
@@ -222,7 +226,7 @@ impl Server {
         edits.sort_unstable_by_key(|(b, _)| (b.body, b.face, b.pos.x, b.pos.y, b.pos.z));
         let mut players = self.absent.clone();
         for c in self.clients.iter().filter(|c| !c.player.name.is_empty()) {
-            players.insert(c.player.name.clone(), saved(c));
+            players.insert(c.player.name.clone(), saved_in(c, &self.world));
         }
         Save {
             version: save::VERSION,
@@ -247,6 +251,8 @@ impl Server {
             kinds: self.world.water.heat_kinds(),
             chambers: (self.world.water.chambers.clone(), self.world.water.erupted),
             crust: self.world.water.crust.iter().map(|(&(c, k), &(f, u))| (c, k, f, u)).collect(),
+            snow: if self.world.snow.bare() { Default::default() } else { self.world.snow.state() },
+            ground: (self.world.water.ground_extra, self.world.water.rim, self.world.water.aquifer.iter().map(|(&k, c)| (k, c.clone())).collect()),
         }
     }
 
@@ -298,7 +304,8 @@ impl Server {
     /// The air's ledger and the rain it handed the rivers, against where they started (W5): 0 while no unit of
     /// the air's water appears or vanishes; None without the live air.
     pub fn air_ledger(&self) -> Option<i128> {
-        Some(self.weather.as_ref()?.ledger() + self.world.water.rained as i128 - self.air0)
+        let snow = &self.world.snow;
+        Some(self.weather.as_ref()?.ledger() + self.world.water.rained as i128 + (snow.lent - snow.owing()) as i128 - self.air0)
     }
 
     /// Conservation (ADR 0020): water that differs from generation plus water in buckets, which only creative
@@ -309,7 +316,9 @@ impl Server {
         // steps 4 and 5)
         let w = &self.world.water;
         let (steam, ice) = (w.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0), w.froze.get(&engine::fluids::WATER).copied().unwrap_or(0));
-        w.counted() + steam + ice + held - (self.made - self.removed)
+        // (snow lying is counted water taken from the air's account: what it holds less what it took, ADR 0189)
+        let snow = self.world.snow.held() - self.world.snow.lent;
+        w.counted() + steam + ice + held + snow - (self.made - self.removed)
     }
 
     /// Conservation of ore (ADR 0063): the bodies whose ledger differs from a recount from the edits, as
@@ -344,6 +353,14 @@ impl Server {
         }
         if !w.crust.is_empty() {
             h = fnv(h, &postcard::to_allocvec(&w.crust).unwrap());
+        }
+        // and the snow's (ADR 0189): a world without any keeps its hashes
+        if !self.world.snow.bare() {
+            h = fnv(h, &postcard::to_allocvec(&self.world.snow.state()).unwrap());
+        }
+        // and the ground water off its rest (ADR 0190; none in a world without a table)
+        if !w.aquifer.is_empty() || w.ground_extra != 0 || w.rim != 0 {
+            h = fnv(h, &postcard::to_allocvec(&(&w.aquifer, w.ground_extra, w.rim)).unwrap());
         }
         for c in &self.clients {
             let p = &c.phys;

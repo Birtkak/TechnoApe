@@ -20,6 +20,7 @@ mod piles;
 mod proxy;
 mod play;
 mod nav;
+mod sights;
 mod rt;
 mod settings;
 pub mod sprite;
@@ -377,9 +378,6 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
     // (planet= and moon= are columns per face edge, 1 m each, ADR 0033: 6144 is the 4 km planet, the standard;
     // 12288 the 8 km huge one; 768 the benchmark's 500 m class)
-    // warp=0..1: the block grid warped towards the conformal cube-sphere (a trial, ADR 0131). The server's and
-    // this client's must be the same: a remote server's is not sent, so it is given here by hand
-    let warp: f64 = args.0.get("warp").map_or(0.0, |v| v.parse().expect("warp= is a number 0 to 1"));
     let mut local_server = None;
     let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
@@ -399,7 +397,6 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             // saves (ADR 0016): play keeps one per seed and planet under saves/, save= names another, save=0 none
             // (creatures=0 keeps no save: its empty herds would be written over the save's)
             let save = args.0.get("save").cloned().or((run == "play").then(|| format!("saves/seed-{seed}-planet-{planet}.sav"))).filter(|s| s != "0" && args.get("creatures", 1) != 0);
-            assert!(warp == 0.0 || save.is_none(), "warp= is a trial: run it with save=0, the warp is kept in no save");
             let mut server = match save.as_deref().map(std::path::Path::new).filter(|p| p.exists()) {
                 Some(p) => {
                     // a save this build cannot read stops the game rather than being overwritten
@@ -410,7 +407,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                     s
                 }
                 // a new world of the newest generation, or `gen=` (mantle=0: generation 0, the 192 m floor before ADR 0152)
-                None => Server::baked_warp(planet, moon, seed, warp, server::gen_arg(args.get("mantle", 1), args.get("gen", -1)), accept_rx),
+                None => Server::baked_warp(planet, moon, seed, 0.0, server::gen_arg(args.get("mantle", 1), args.get("gen", -1)), accept_rx),
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
             server.live_data = true;
@@ -504,7 +501,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                     h => (n, engine::world::Source::Now(h.map(|h| k.map_or_else(|| engine::net::fetch_map(&mut link, seed, n, h), Ok).unwrap_or_else(|e| panic!("{e}"))))),
                 })
                 .collect();
-            (id, World::of_sources(rows, list, seed, warp, gen), seed)
+            (id, World::of_sources(rows, list, seed, 0.0, gen), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };
@@ -642,8 +639,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // the globe's pictures start on a worker now; what was seen is kept beside the save (ADR 0077); the
     // meridians as `App::meridian` has them
     let mut globe = globe::State::new(
-        [world.bodies[0].map().cloned(), world.bodies.get(world.moon).and_then(|b| b.map().cloned())],
-        [world.bodies[0].spawn_point() - world.bodies[0].centre, -DVec3::X],
+        &engine::bodies::BODIES,
+        (0..engine::bodies::BODIES.len()).map(|b| if b == 0 { world.bodies[0].spawn_point() - world.bodies[0].centre } else { -DVec3::X }).collect(),
         save_path.as_ref().map(|s| format!("{s}.seen")),
     );
     globe.id = my_id;
@@ -713,6 +710,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         struck: f64::MIN,
         struck_at: glam::DVec3::ZERO,
         held_name: (usize::MAX, Instant::now()),
+        ground_label: ((usize::MAX, 0, 0, 0), None, Instant::now()),
+        spectator: false,
+        sight_pitch: None,
         looks: Default::default(),
         fx,
         models,
@@ -737,6 +737,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         inv: engine::items::ape(),
         items_pending: Vec::new(),
         piles: Default::default(),
+        slabs: Vec::new(),
+        slabs_at: None,
         lifted: None,
         inv_tab: 0,
         inv_query: String::new(),

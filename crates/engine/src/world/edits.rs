@@ -165,6 +165,8 @@ impl World {
             let World { bodies, edits, water, sky, time, .. } = self;
             let mut g = Solid::at(bodies, edits, sky, *time);
             g.air = Some(Air { sky, t: *time, temp });
+            // ground water at the same pace (ADR 0190): wells and caves trade with their cells
+            water.seep(&g, dt);
             water.cool(&g, dt)
         };
         let rows = crate::fluids::FLUIDS.now();

@@ -11,8 +11,8 @@ impl World {
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         World::baked_warp(planet_n, moon_n, seed, 0.0, GENERATION)
     }
-    /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131), the planet
-    /// of generation `gen` (`with_grid`).
+    /// `baked`, the planet of generation `gen` (`with_grid`), every body's block grid warped by `warp` or by the
+    /// generation's (`grid_warp`), the more of the two.
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8) -> Self {
         World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get_at(seed, planet_n, gen)), Some(crate::bake::luna::get(seed, moon_n)), warp, gen)
     }
@@ -66,6 +66,8 @@ impl World {
         assert_eq!(rows.len(), list.len(), "a size and a map for every body");
         assert!(rows.len() <= crate::bodies::MAX, "{} bodies; a world holds at most {}", rows.len(), crate::bodies::MAX);
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
+        // the grid follows from the generation (CONFORMAL); `warp` only warps a world of an earlier one (a test's)
+        let warp = warp.max(grid_warp(gen));
         let moon = crate::bodies::moon(rows).expect("the home has a moon (bodies::parse)");
         // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
         let mut first: Option<Interior> = None;
@@ -173,6 +175,7 @@ impl World {
             lights_rev: 0,
             models: FxMap::default(),
             water: Liquids::default(),
+            snow: Default::default(),
             ore_left: None,
             far: None,
             lazy,
@@ -193,6 +196,7 @@ impl World {
             lights_rev: 0,
             models: FxMap::default(),
             water: Liquids::default(),
+            snow: Default::default(),
             ore_left: None,
             far: None,
             lazy: self.lazy.clone(),

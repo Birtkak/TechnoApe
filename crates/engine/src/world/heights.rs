@@ -7,7 +7,7 @@ impl Body {
         self.height_at(face, i, j, self.dir(face, i, j), 0)
     }
     /// The first generated air layer over a surface at radius h: `material`'s own test.
-    pub(crate) fn first_air(&self, h: f64) -> i32 {
+    pub fn first_air(&self, h: f64) -> i32 {
         let mut z = ((self.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
         while z > 0 && material(h - self.layer_r(z as f64 - 0.5), &self.ground) == AIR {
             z -= 1;
@@ -255,6 +255,13 @@ impl Body {
         }
         let (i, j) = self.warp_col(i, j);
         self.dir_tan(face, self.col_tan(i), self.col_tan(j))
+    }
+    /// How wide a column is at grid point (i, j) of a face, in metres at the body's radius (the mean of its two
+    /// ways). On the old grid 1.09 at a face's middle and less toward its edges; on the conformal one square, and
+    /// small near the 8 corners: what is sized in metres (a crater, a cave's reach sideways) asks it there.
+    pub fn col_m(&self, face: usize, i: f64, j: f64) -> f64 {
+        let w = |di: f64, dj: f64| (self.dir(face, i + di, j + dj) - self.dir(face, i - di, j - dj)).length() * self.radius;
+        0.5 * (w(0.5, 0.0) + w(0.0, 0.5))
     }
     /// `dir` from its two tangents: a tile computes them once per row and column, to the same bits.
     fn dir_tan(&self, face: usize, ta: f64, tb: f64) -> DVec3 {

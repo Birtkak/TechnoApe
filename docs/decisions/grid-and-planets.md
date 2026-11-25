@@ -29,14 +29,15 @@ from; INDEX.md lists every number.
   stays 1.25 blocks. [0132]
 - **The grid is the conformal cube-sphere** (2026-11-15, after walking on the trial: "Make it the grid"): square
   block tops everywhere matter more than blocks shrinking near the 8 corners. New worlds only; old saves keep the
-  grid they were made on. [0131] (checked in code: no ADR number carries the choice yet, and `warp=` still defaults
-  to 0 in `technoape-server` and `technoape-bot`; the engine and the table exist, the default is not switched)
+  grid they were made on. [0131] The default from generation 13 (2026-11-24, the developer: make it the default):
+  every new world is on it. [0203]
 - **Corners are ordinary ground**: nothing is placed on the 8 cube corners. [0136 supersedes the corners lines of
   0003 and 0027] (also vision-and-scope.md)
 
 ## The grid
 
-- **Equi-angular cube-sphere** with quad-prism blocks: 6 faces of N x N columns. N = 32 * m * 2^L with a small m (the
+- **Equi-angular cube-sphere** with quad-prism blocks, its face coordinates warped first from generation 13 (the
+  conformal warp, below): 6 faces of N x N columns. N = 32 * m * 2^L with a small m (the
   chunks are 32 columns wide and the LOD tree halves the resolution per level, so only such an N lets the tree tile a
   face). N sets the radius, R = N * BLOCK / sqrt(2 pi / 3): N = 6144 gives R = 4245 m, 12288 gives 8488 m. [0003, 0033]
 - **Radial layers are geometric** (each BLOCK/R thicker than the one below), so blocks stay cubic at every depth.
@@ -74,8 +75,8 @@ The conformal grid is the equi-angular grid with its face coordinates warped fir
 - `engine::warp`: `at`, `warp`, `unwarp` (Newton from one fixed-point step, to 1e-14 of a face). The shader takes
   one fixed-point step and 3 Newton steps (two leave 1.4 columns near a corner; three under 0.005 of a column). The
   table is an rg32float texture at group 0 binding 18; the strength is the body uniform's `rot0.w`.
-- `Body::warp: f64` (0 by default; not a process global, tests run in parallel), set by `World::with_maps_warp` /
-  `World::baked_warp` before the body gets its map. `Body::dir` warps first, `Body::locate` unwarps after, both
+- `Body::warp: f64` (not a process global, tests run in parallel), set by `World::of_sources` before the body gets
+  its map: the generation's (`world::grid_warp`), or a test's `warp` on a world of an earlier one. `Body::dir` warps first, `Body::locate` unwarps after, both
   skipping the table at 0 (0 is the old grid to the bit). `Body::warp_col` / `unwarp_col` convert between block
   columns and the equi-angular grid's columns.
 - **The land stays where it is:** every map lookup reads the map at `warp_col` of the column (it read by face column
@@ -87,10 +88,26 @@ The conformal grid is the equi-angular grid with its face coordinates warped fir
 - **Left unwarped on purpose:** the bake's own grid (`bake/grid.rs`, `bake/rivers.rs`), the clouds (`clouds.wgsl`
   `cl_locate`), the weather and air grid (`weather.rs`, `bake/air.rs`): each has its own equi-angular map by
   direction. The globe map reads the bake grid.
-- **Trial limits:** `warp=0..1` on the client, the server and the bot needs `save=0` (asserted); the warp is in no
-  save and no message, so a client or bot joining a remote server must be given the same `warp=` by hand.
-- **Open:** making it the default (the developer chose it): drop or keep the old path for old saves, put the warp in
-  the save and the welcome. [0131]
+
+### The generation carries the grid [0203, 2026-11-24]
+Generation 13 (`world::CONFORMAL`, the newest) is generation 12 with every body on the conformal grid (warp 1);
+every earlier generation keeps the equi-angular grid (warp 0) to the bit, so old saves, their recordings and hashes
+stay as they were. The warp follows from the generation wherever a world is built from it (`World::of_sources`:
+a new world, a save's load, a client's or bot's welcome, the soak's bots, a replay, `report=1`), because a save
+already stores its generation and the welcome already says it: no save field, no wire message, no argument. The
+trial's `warp=` (client, server, bot) and its `save=0` asserts are gone; `gen=12` makes a new world on the old grid
+to compare. The developer's call (the default, 2026-11-24); keeping the old grid for old saves is the routine part.
+Alternatives rejected: a warp field in the save and the welcome (a second number saying what the generation says).
+Replaces: 0131's trial limits (`warp=` by hand, `save=0`) and its open item (making it the default).
+**Metres and columns** (the review of this step): a column is no longer about a metre everywhere, so what is
+sized in metres is counted in the columns of its place, by `Body::col_m`: a crater's rim and lake, and a cave's
+reach sideways (its height stays in layers). The player's box past a face edge is met point by point, every 0.2 m,
+since the columns over a seam are not this face's lattice carried on. Known and left, all small near the 8 corners
+and right elsewhere: ranges counted in columns reach less far there (the fluid lamps' span, the sea's horizon cap,
+snow's live square of 16, a volcano's chamber heat against its hollow), the aquifer's cell spacing is a column
+count taken as metres (seep rates follow the column's width), and a river's tilt in the water shader uses the
+face's axes, not the warped tangents. A cave tube's cross-section test stays on generation 12: a tube's 8th
+station fails on some seeds on either grid (seed 5 on 13, seed 6 on 12), a fault of the cave walk, open.
 
 ## Planets and their sizes
 
@@ -167,7 +184,7 @@ The conformal grid is the equi-angular grid with its face coordinates warped fir
   versions are in multiplayer-saves-and-data.md; those that change the grid: version 20 added `mantle: bool` (a 19 or
   older reads as false, 0154), version 22 replaced `planet_n, moon_n, map, luna` by `bodies: Vec<(i32, Option<u64>)>`
   (0163). See deep-world.md and bodies-and-orbits.md.
-- The warp is in no save and no message. [0131]
+- The warp is in no save and no message: the generation, which both carry, says it. [0131, 0203]
 - Recordings (postcard, positional) from before 0024 no longer load. [0024]
 
 ## No longer holds
@@ -197,4 +214,7 @@ The conformal grid is the equi-angular grid with its face coordinates warped fir
 - 0037's gravity of the square root of the radius ratio (Luna 2.0 m/s2), `r` clamped to 0.9 R, `JUMP` 4.87 m/s and
   `FREE_G` 1.0: replaced by 0041 (Luna pulls 3.7 times less), 0154 / 0162 (inside a body), 0132 (G 19.62, JUMP
   6.84, `FREE_G` = G / 9.81).
-- 0131's "trial, awaiting the developer": the developer chose it (see the calls); only the switch to the default is open.
+- 0131's "trial, awaiting the developer": the developer chose it (see the calls), and generation 13 made it the
+  default.
+- 0131's trial limits (`warp=0..1` on the client, the server and the bot, `save=0` asserted, a remote server's warp
+  given by hand) and its open item "making it the default": the generation carries the grid (0203).
