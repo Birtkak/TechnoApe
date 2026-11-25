@@ -252,7 +252,6 @@ mod tests {
         assert!(sizes.contains(&3328) && sizes.contains(&12288), "{sizes:?}");
     }
 
-    /// The table's derivatives are the bilinear's own, and `unwarp` inverts `warp` (to 1e-12 of a face).
     /// `value` is `at`'s first half to the bit, over the face, past its edges and at mirrored points.
     #[test]
     fn value_is_ats_value_to_the_bit() {
@@ -266,6 +265,7 @@ mod tests {
         }
     }
 
+    /// The table's derivatives are the bilinear's own, and `unwarp` inverts `warp` (to 1e-12 of a face).
     #[test]
     fn the_table_inverts() {
         for (a, b) in [(0.0, 0.0), (0.3, -0.7), (-0.99, 0.98), (0.999, 0.999), (1.0, -0.2), (-0.5, -1.0), (0.01, 0.6)] {
