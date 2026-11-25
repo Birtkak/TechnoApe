@@ -333,6 +333,8 @@ pub struct Models {
     /// The players' figures this frame (ADR 0209), and this player's look: its bare arm's model.
     pub figures: Vec<Figure>,
     pub look: String,
+    /// The looks a player can have (ADR 0209), in the order of their names: the same list on every client.
+    pub looks: Vec<String>,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
     clip_state: State,
     /// Placed model cells asked into a state (`set_state`), and the states playing.
@@ -405,6 +407,7 @@ impl Models {
             hand: 0,
             figures: Vec::new(),
             look: FIGURE.into(),
+            looks: Vec::new(),
             states: Default::default(),
             runs: Default::default(),
             held: Vec::new(),
@@ -538,6 +541,8 @@ impl Models {
         if !quads.is_empty() {
             queue.write_buffer(buf, 0, bytemuck::cast_slice(&quads));
         }
+        self.looks = self.list.iter().map(|l| l.0.name.clone()).filter(|n| n.starts_with(crate::looks::LOOKS)).collect();
+        self.looks.sort();
         self.reloaded = true;
         self.gen += 1;
         eprintln!("[technoape] models: {} loaded, {} quads", self.list.len(), quads.len());
@@ -745,7 +750,7 @@ impl Models {
         // feet, as tall as the player's box and its middle on the player's, as its shadow's boxes (proxy.rs), its +z
         // along the look
         // shortcut: empty-handed, the head level; hang the held item on the arm and pitch the head when wanted
-        let mut passes: Vec<(usize, usize, u32)> = Vec::new();
+        let mut passes = std::collections::BTreeMap::new();
         for g in &self.figures {
             let Some(m) = by_name(&g.look).or_else(|| by_name(FIGURE)) else { continue };
             let l = &self.list[m].0;
@@ -754,7 +759,7 @@ impl Models {
             let turn = cams.get(g.body).map_or(DMat3::IDENTITY, |c| c.1);
             let f = DMat4::from_mat3(turn) * DMat4::from_cols(g.up.cross(z).extend(0.0), g.up.extend(0.0), z.extend(0.0), g.at.extend(1.0));
             let fit = Mat4::from_scale(Vec3::splat(engine::phys::HEIGHT as f32 / (hi.y - lo.y).max(1e-3))) * Mat4::from_translation(-Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5));
-            passes.push((m, inst[m].len(), g.pass));
+            passes.insert((m, inst[m].len()), g.pass);
             inst[m].push((l.model.clips.iter().position(|k| k.name == g.clip), g.t, f.as_mat4() * fit, g.body as u32, 1.0));
         }
         // the effects' particles with a model look: at `size` times the model, resting on its first part's foot
@@ -867,7 +872,7 @@ impl Models {
                 for (k, (_, _, x, body, s)) in list.iter().enumerate() {
                     let r = (*x * sc(*s) * poses[k][pi]).transpose();
                     // (a figure too: its own shadow's boxes would shade it, ADR 0208)
-                    let hand = if held == Some((m, k)) { self.hand } else { passes.iter().find(|p| (p.0, p.1) == (m, k)).map_or(0, |p| p.2) };
+                    let hand = if held == Some((m, k)) { self.hand } else { passes.get(&(m, k)).copied().unwrap_or(0) };
                     self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [hand, 0] });
                 }
                 if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(owner(pi))) {
@@ -880,13 +885,6 @@ impl Models {
                 }
             }
         }
-    }
-
-    /// The looks a player can have (ADR 0209), in the order of their names: the same list on every client.
-    pub fn looks(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.list.iter().map(|l| l.0.name.clone()).filter(|n| n.starts_with(crate::looks::LOOKS)).collect();
-        v.sort();
-        v
     }
 
     /// This frame's pieces to the GPU.

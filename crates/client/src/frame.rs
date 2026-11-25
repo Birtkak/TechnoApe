@@ -1147,7 +1147,7 @@ impl App {
         // the players' figures (ADR 0209): this player's own in third person, from the camera, not on the title nor
         // with the camera in its head (ADR 0208); and the roster's others within 128 m, eased between its rosters,
         // each in the look its name has in this universe
-        let looks = self.models.looks();
+        let looks = &self.models.looks;
         let seed = self.seed;
         let look = |name: &str| looks.get(crate::looks::look_of(seed, name, looks.len())).cloned().unwrap_or_else(|| crate::models::FIGURE.into());
         let my_name = self.globe.others.iter().find(|o| o.id == self.globe.id).map_or_else(|| self.args.s("name", "player"), |o| o.name.clone());
@@ -1159,7 +1159,9 @@ impl App {
             let (clip, t) = crate::looks::clip_at(speed, self.me.on_ground && !self.flying, self.strode, clock);
             figures.push(crate::models::Figure { look: self.models.look.clone(), body: cf, at: eye.pos - eye.up * phys::EYE - p.pos, fwd: eye.fwd, up: eye.up, clip, t, pass: self.models.hand });
         }
-        for o in self.globe.others.iter().filter(|o| o.id != self.globe.id) {
+        // (in play only: a benchmark run's fifty players stay shadows, its numbers as they were)
+        let (play, me) = (self.run == "play", self.globe.id);
+        for o in self.globe.others.iter().filter(|o| play && o.id != me) {
             let Some(s) = self.seen.get_mut(&o.id) else { continue };
             let (feet, fwd, speed) = s.at(now);
             s.strode += speed * dt;

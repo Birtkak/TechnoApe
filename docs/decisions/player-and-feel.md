@@ -89,8 +89,8 @@ four species (gorilla, chimp, orangutan, mandrill) in five coats (brown, black, 
 universe's seed and the player's name over the looks in the order of their names, so it is as good as random, the
 same on every client and at every visit, and another in another universe; no look is sent or saved (the server and
 the wire were another writer's when this was made). With no looks in the data everyone is the plain `ape`.
-The figures: every other player of the roster within 128 m is drawn in its look, and its shadow's boxes with it,
-eased from where its figure was to where the newest roster puts it over the time the roster before took (the
+The figures (in `run=play` only): every other player of the roster within 128 m is drawn in its look, and its shadow's boxes with it,
+eased from where its figure was to where the newest roster puts it over `looks::SPAN` 1.1 s, a little over a roster, so a walker never stands in between (the
 roster comes once a second, ADR 0117), a move of 30 m or more put, not walked. A figure plays `p.idle`, `p.walk`
 or `p.run`, made by the walk maker (ADR 0053) from the `ape` row of `data/creatures.toml` at the player's own
 walk and sprint speeds for the plain ape and every look; the clip's time is the metres walked over that speed, so

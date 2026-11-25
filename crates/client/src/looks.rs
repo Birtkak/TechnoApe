@@ -37,7 +37,7 @@ pub fn clip_at(speed: f64, grounded: bool, strode: f64, t: f64) -> (&'static str
 }
 
 /// Another player as the rosters tell it (once a second, ADR 0117): eased from where its figure was at the last
-/// roster to where that roster put it, over the time the roster before took to come.
+/// roster to where that roster put it, over `SPAN`.
 // shortcut: its figure is up to a roster late; send the players' moves at the tick's rate to those near when
 // the server's writer is free
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +50,10 @@ pub struct Seen {
     pub strode: f64,
 }
 
+/// Seconds a figure takes to the newest roster's place: a little over the second between rosters, so a walker
+/// is still on its way when the next comes and never stands in between (the review of ADR 0209).
+pub const SPAN: f64 = 1.1;
+
 /// A jump this long between two rosters is a teleport: the figure is put there, not walked there.
 const JUMP_M: f64 = 30.0;
 
@@ -59,9 +63,9 @@ impl Seen {
         match was {
             Some(s) if s.to.0.distance(to.0) < JUMP_M => {
                 let from = (s.at(now).0, s.at(now).1);
-                Seen { from, to, at: now, span: now.duration_since(s.at).as_secs_f64().clamp(0.05, 1.5), strode: s.strode }
+                Seen { from, to, at: now, span: SPAN, strode: s.strode }
             }
-            _ => Seen { from: to, to, at: now, span: 1.0, strode: 0.0 },
+            _ => Seen { from: to, to, at: now, span: SPAN, strode: 0.0 },
         }
     }
 
@@ -101,20 +105,38 @@ mod tests {
         let fwd = DVec3::X;
         let a = Seen::take(None, (DVec3::ZERO, fwd), t0);
         assert_eq!(a.at(t0 + Duration::from_secs(5)), (DVec3::ZERO, fwd, 0.0), "first seen: it stands where it is");
-        // a second later it is 4 m on: half a second after that roster the figure is half way, at 4 m/s
+        // a second later it is 4 m on: half a span after that roster the figure is half way
         let t1 = t0 + Duration::from_secs(1);
         let b = Seen::take(Some(a), (DVec3::X * 4.0, fwd), t1);
-        let (p, _, v) = b.at(t1 + Duration::from_millis(500));
-        assert!((p.x - 2.0).abs() < 1e-9 && (v - 4.0).abs() < 1e-9, "at {p} going {v}");
+        let (p, _, v) = b.at(t1 + Duration::from_secs_f64(SPAN / 2.0));
+        assert!((p.x - 2.0).abs() < 1e-9 && (v - 4.0 / SPAN).abs() < 1e-9, "at {p} going {v}");
         // past the span it stands at the roster's place
         assert_eq!(b.at(t1 + Duration::from_secs(3)), (DVec3::X * 4.0, fwd, 0.0));
         // a roster that comes early (a change of hand) starts from where the figure is, not from the last roster
         let t2 = t1 + Duration::from_millis(500);
         let c = Seen::take(Some(b), (DVec3::X * 6.0, fwd), t2);
-        assert!((c.at(t2).0.x - 2.0).abs() < 1e-9, "no jump back or ahead: {}", c.at(t2).0);
+        assert!((c.at(t2).0.x - b.at(t2).0.x).abs() < 1e-9, "no jump back or ahead: {}", c.at(t2).0);
+        // and does not make it lurch: it goes on at about its speed (the review of ADR 0209)
+        assert!((3.0..5.0).contains(&c.at(t2).2), "going {}", c.at(t2).2);
         // a teleport is not walked
         let d = Seen::take(Some(c), (DVec3::X * 500.0, fwd), t2 + Duration::from_secs(1));
         assert_eq!(d.at(t2 + Duration::from_secs(1)).0, DVec3::X * 500.0);
+    }
+
+    /// The review of ADR 0209: a roster a frame late left the figure standing until it came, once a second.
+    #[test]
+    fn a_walker_never_stands_between_its_rosters() {
+        let t0 = Instant::now();
+        let mut s = Seen::take(None, (DVec3::ZERO, DVec3::X), t0);
+        for k in 1..8u64 {
+            // rosters a second apart, give or take a frame; just before each the figure still walks
+            let late = Duration::from_millis(1000 * k + if k % 2 == 0 { 16 } else { 0 });
+            if k > 3 {
+                let v = s.at(t0 + late - Duration::from_millis(1)).2;
+                assert!((3.0..5.0).contains(&v), "before roster {k} it goes {v} m/s");
+            }
+            s = Seen::take(Some(s), (DVec3::X * 4.0 * k as f64, DVec3::X), t0 + late);
+        }
     }
 
     #[test]
