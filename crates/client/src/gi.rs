@@ -39,6 +39,12 @@ pub struct Gi {
     atrous: wgpu::ComputePipeline,
     composite: wgpu::RenderPipeline,
     clouds: wgpu::RenderPipeline,
+    /// The clouds at half resolution (draft "Clouds at half resolution"): the march's pipeline, the upsample's, the two targets (colour;
+    /// start, end and reach) and the upsample's group 1 that reads them.
+    clouds_half: wgpu::RenderPipeline,
+    clouds_up: wgpu::RenderPipeline,
+    cloud_half: [wgpu::TextureView; 2],
+    cloud_up: wgpu::BindGroup,
     trace0: wgpu::BindGroup,
     /// Per frame parity: the trace's group 1, the temporal pass, the three smoothing passes, the composite.
     trace1: [wgpu::BindGroup; 2],
@@ -327,7 +333,53 @@ impl Gi {
             multiview_mask: None,
             cache: None,
         });
-        Gi { direct, albedo, gbuf, trace, temporal, atrous, composite, clouds, trace0, trace1, passes, comp, ubufs, prev: None, frame: 0, size: (w, h) }
+        // the clouds at half resolution (draft "Clouds at half resolution", post.wgsl fs_clouds_half): their colour, and where each ray's
+        // cloud starts and ends and how far it went; then the upsample onto the screen in the full pass's place
+        let cloud_half = [tex_at("clouds-half", f16, rt, (w.div_ceil(2), h.div_ceil(2))), tex_at("clouds-span", f16, rt, (w.div_ceil(2), h.div_ceil(2)))];
+        let clouds_half = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("clouds-half"),
+            layout: Some(&clayout),
+            vertex: wgpu::VertexState { module: &post, entry_point: Some("vs_composite"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState { module: &post, entry_point: Some("fs_clouds_half"), targets: &[Some(f16.into()), Some(f16.into())], compilation_options: Default::default() }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        // (the colour filterable: where all four rays count whole, the clouds' sampler blends them in one read)
+        let mut ucol = texture(0, fs);
+        ucol.ty = wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false };
+        let ubgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("clouds-up"), entries: &[ucol, texture(1, fs)] });
+        let cloud_up = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &ubgl,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: view(&cloud_half[0]) }, wgpu::BindGroupEntry { binding: 1, resource: view(&cloud_half[1]) }],
+        });
+        let ulayout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&cbgl), Some(&ubgl)], immediate_size: 0 });
+        let clouds_up = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("clouds-up"),
+            layout: Some(&ulayout),
+            vertex: wgpu::VertexState { module: &post, entry_point: Some("vs_composite"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &post,
+                entry_point: Some("fs_clouds_up"),
+                targets: &[Some(wgpu::ColorTargetState { format: screen, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        Gi { direct, albedo, gbuf, trace, temporal, atrous, composite, clouds, clouds_half, clouds_up, cloud_half, cloud_up, trace0, trace1, passes, comp, ubufs, prev: None, frame: 0, size: (w, h) }
     }
 
     /// The terrain pass's targets this frame, in `TARGETS` order.
@@ -423,8 +475,28 @@ impl Gi {
     }
 
     /// The clouds over the screen, after the water (ADR 0076); none when the frame has none (`Post::clouds`).
-    pub fn clouds<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
-        rp.set_pipeline(&self.clouds);
+    /// `half`: the upsample of `clouds_half`'s march (draft "Clouds at half resolution") instead of a march per pixel (`clouds_res=full`).
+    pub fn clouds<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>, half: bool) {
+        rp.set_pipeline(if half { &self.clouds_up } else { &self.clouds });
+        rp.set_bind_group(0, &self.comp[((self.frame + 1) % 2) as usize], &[]);
+        if half {
+            rp.set_bind_group(1, &self.cloud_up, &[]);
+        }
+        rp.draw(0..3, 0..1);
+    }
+
+    /// The clouds' march at half resolution, in a pass of its own before the screen's (draft "Clouds at half resolution"); after `record`.
+    pub fn clouds_half(&self, enc: &mut wgpu::CommandEncoder) {
+        let target = |view| Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } });
+        let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("clouds-half"),
+            color_attachments: &[target(&self.cloud_half[0]), target(&self.cloud_half[1])],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        rp.set_pipeline(&self.clouds_half);
         rp.set_bind_group(0, &self.comp[((self.frame + 1) % 2) as usize], &[]);
         rp.draw(0..3, 0..1);
     }

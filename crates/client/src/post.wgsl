@@ -162,8 +162,10 @@ fn atrous(@builtin(global_invocation_id) id: vec3u) {
 // the clouds between the camera and what a pixel shows `dist` metres away along view ray `dir` (0: the sky),
 // premultiplied (rgb) with the share of what is behind them they hide (a): the slab's one or two pieces in
 // front of it, marched in steps of about 4 m (fewer far away; 8 m before the clouds came down to 100 m, ADR
-// 0098), from a point jittered per pixel
-fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
+// 0098), from a point jittered per pixel. `span` gets where along the ray the cloud it found starts and ends
+// (0, 0 for none): the half-resolution pass keeps it for the upsample's cut by distance (draft "Clouds at half resolution")
+fn clouds(px: vec2i, dir: vec3f, dist: f32, span: ptr<function, vec2f>) -> vec4f {
+    *span = vec2f(0.0);
     let sea = u.ctr.w;
     let steps = u.sun_col.w;
     if (sea <= 0.0 || steps <= 0.0 || u.cloud.w <= 0.0) { return vec4f(0.0); }
@@ -209,6 +211,7 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     var tr = 1.0;
     var col = vec3f(0.0);
     var first = -1.0;
+    var last = 0.0;
     for (var k = 0; k < 2; k++) {
         let s = seg[k];
         let len = s.y - s.x;
@@ -220,7 +223,8 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
             let q = o + d * t;
             let cs = cl_sample(q, sea, wind, u.cloud);
             if (cs.d <= 0.0) { continue; }
-            if (first < 0.0) { first = t; }
+            if (first < 0.0) { first = t; *span = vec2f(t - jit * dt, 0.0); }
+            last = t + (1.0 - jit) * dt;
             let r = length(q);
             let up = q / r;
             let hf = clamp((r - r0) / CL_THICK, 0.0, 1.0);
@@ -242,6 +246,7 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
         // far clouds fade into the air as far ground does
         col = mix(col, u.air.rgb * (1.0 - tr), 1.0 - exp(-first * u.air.w));
     }
+    (*span).y = last;
     return vec4f(col, 1.0 - tr);
 }
 
@@ -340,15 +345,105 @@ fn fs_clouds(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = vec2i(pos.xy);
     let dir = normalize(point_at(px, 1.0));
     let dist = gload(gbuf, px).w;
-    let cl = clouds(px, dir, dist);
-    // the aurora is far over the clouds: they hide it
-    let au = aurora(px, dir, dist);
+    var sp: vec2f;
+    let cl = clouds(px, dir, dist, &sp);
+    return clouds_over(cl, aurora(px, dir, dist));
+}
+
+// the clouds `cl` (premultiplied) and the aurora's light onto the screen: the aurora is far over the clouds, they hide it
+fn clouds_over(cl: vec4f, au: vec3f) -> vec4f {
     if (cl.a <= 0.0 && au.r + au.g + au.b <= 0.0) { discard; }
     var c = vec3f(0.0);
     if (cl.a > 0.0) { c = shoulder(cl.rgb / cl.a); }
     var a = shoulder(au);
     if (u.tune.w != 1.0) { c = pow(c, vec3f(1.0 / u.tune.w)); a = pow(a, vec3f(1.0 / u.tune.w)); }
     return vec4f(c * cl.a + a * (1.0 - cl.a), cl.a);
+}
+
+// ---- the clouds at half resolution (draft "Clouds at half resolution") ----
+// A quarter of the rays: `fs_clouds_half` marches one for each 2x2 pixels, to the farthest of the four (so no cloud
+// is cut short behind a silhouette), and keeps where its cloud starts and ends and how far it marched;
+// `fs_clouds_up` blends the four nearest of them for each pixel and cuts them by the pixel's own distance.
+// The aurora stays at full resolution in `fs_clouds_up`.
+// The distance that stands for the sky in the half-resolution target (a 16-bit float holds it)
+const CL_SKY: f32 = 6e4;
+struct CloudsHalf {
+    @location(0) col: vec4f,  // premultiplied, as `clouds` gives it
+    @location(1) span: vec4f, // x where the cloud starts, y where it ends, z how far the ray went (CL_SKY: the sky)
+};
+@group(1) @binding(0) var clh_col: texture_2d<f32>;
+@group(1) @binding(1) var clh_span: texture_2d<f32>;
+
+@fragment
+fn fs_clouds_half(@builtin(position) pos: vec4f) -> CloudsHalf {
+    let hp = vec2i(pos.xy);
+    let size = vec2i(textureDimensions(gbuf));
+    var far = 0.0;
+    var sky = false;
+    for (var k = 0; k < 4; k++) {
+        let d = bitcast<f32>(textureLoad(gbuf, min(hp * 2 + vec2i(k & 1, k >> 1u), size - 1), 0).y);
+        sky = sky || d <= 0.0;
+        far = max(far, d);
+    }
+    if (sky) { far = 0.0; }
+    // the ray through the middle of the four
+    let uv = (vec2f(hp) * 2.0 + 1.0) / vec2f(size);
+    let dir = normalize(u.rays[0].xyz + uv.x * u.rays[1].xyz + uv.y * u.rays[2].xyz);
+    var sp: vec2f;
+    // jittered by the half-resolution pixel: the upsample blends four of them, which smooths the grain
+    let cl = clouds(hp, dir, far, &sp);
+    return CloudsHalf(cl, vec4f(sp, select(CL_SKY, min(far, CL_SKY), far > 0.0), 0.0));
+}
+
+@fragment
+fn fs_clouds_up(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+    let px = vec2i(pos.xy);
+    let dist = gload(gbuf, px).w;
+    var cl = vec4f(0.0);
+    // (as `clouds`: none this frame, and the half-resolution target is stale)
+    if (u.ctr.w > 0.0 && u.sun_col.w > 0.0 && u.cloud.w > 0.0) {
+        let d = select(CL_SKY, min(dist, CL_SKY), dist > 0.0);
+        let hs = vec2i(textureDimensions(clh_col));
+        let f = (vec2f(px) - 0.5) * 0.5;
+        let h0 = vec2i(floor(f));
+        let t = fract(f);
+        var sp: array<vec3f, 4>;
+        var any = false;   // some ray's cloud reaches this pixel
+        var whole = true;  // every ray counts, and its cloud (if any) lies whole in front of this pixel
+        for (var k = 0; k < 4; k++) {
+            let s = textureLoad(clh_span, clamp(h0 + vec2i(k & 1, k >> 1u), vec2i(0), hs - 1), 0).xyz;
+            sp[k] = s;
+            // a ray that stopped well short of this pixel (at a ridge in front of this sky) knows nothing of its
+            // clouds; the pixel's own 2x2 never does, so one of the four always counts
+            let ok = s.z >= d * 0.9;
+            any = any || (ok && s.y > 0.0 && d > s.x);
+            whole = whole && ok && (s.y <= 0.0 || d >= s.y);
+        }
+        if (any && whole) {
+            // (most of the sky: the four blended by the sampler, one read)
+            cl = textureSampleLevel(clh_col, cl_samp, (vec2f(px) + 0.5) / vec2f(hs * 2), 0.0);
+        } else if (any) {
+            var ws = 0.0;
+            for (var k = 0; k < 4; k++) {
+                let o = vec2i(k & 1, k >> 1u);
+                let s = sp[k];
+                if (s.z < d * 0.9) { continue; }
+                let bl = select(1.0 - t.x, t.x, o.x == 1) * select(1.0 - t.y, t.y, o.y == 1);
+                ws += bl;
+                // what is nearer than the cloud's start hides it whole (a ridge against the clouds stays crisp);
+                // inside the cloud, the share of it in front, as if it were even from start to end
+                if (s.y <= 0.0 || d <= s.x) { continue; }
+                var c = textureLoad(clh_col, clamp(h0 + o, vec2i(0), hs - 1), 0);
+                if (d < s.y && c.a > 0.0) {
+                    let a = 1.0 - pow(max(1.0 - c.a, 1e-4), (d - s.x) / (s.y - s.x));
+                    c *= a / c.a;
+                }
+                cl += c * bl;
+            }
+            cl /= max(ws, 1e-6);
+        }
+    }
+    return clouds_over(cl, aurora(px, normalize(point_at(px, 1.0)), dist));
 }
 
 // ---- the aurora (0164-magnetic-field) ----

@@ -1402,6 +1402,12 @@ impl App {
             stamp(&mut enc, 3);
             gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, cl, &mut |e, k| stamp(e, 4 + k));
             stamp(&mut enc, 6);
+            // the clouds' march at half resolution (draft "Clouds at half resolution"), counted in the screen's stage as the full march is;
+            // `clouds_res=full` keeps the march per pixel to compare
+            let clouds_half = self.args.0.get("clouds_res").is_none_or(|v| v != "full");
+            if clouds_on && clouds_half {
+                gi.clouds_half(&mut enc);
+            }
             // the screen: direct and bounced light, then the water and the overlays over it
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("screen"),
@@ -1451,7 +1457,7 @@ impl App {
                 }
             }
             if clouds_on || aurora_on {
-                gi.clouds(&mut rp);
+                gi.clouds(&mut rp, clouds_on && clouds_half);
                 // the ghost and the hud after it draw with the globals at group 0 again
                 rp.set_bind_group(0, &gpu.bind, &[]);
             }
