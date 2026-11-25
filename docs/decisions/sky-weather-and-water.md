@@ -632,7 +632,16 @@ post.wgsl; `Gi::clouds_half`), because at 2560 x 1440 the march per pixel was 1.
 - **Upsample** (`fs_clouds_up`, in the screen pass where `fs_clouds` ran): the four nearest half-resolution rays,
   bilinear, each cut by the pixel's own distance: a ray that stopped under 0.9 of it is left out (the pixel's own
   2 x 2 never is), a pixel nearer than the cloud's start gets none of it, a pixel inside the cloud the share
-  `1 - (1 - a)^((d - start) / (end - start))`. Ridges against clouds stay as sharp as the G-buffer.
+  `1 - (1 - a)^((d - start) / (end - start))`. Ridges against clouds stay as sharp as the G-buffer. Where all
+  four count and lie whole in front of the pixel (most of the sky) the clouds' sampler blends them in one read;
+  where none reaches the pixel nothing is read but the four spans.
+- **Measured** (play build, `run=stand quick=1`, full against half, two of each interleaved): at 2560 x 1440 the
+  screen stage 3.24 / 3.27 -> 2.59 / 2.60 ms, GPU p50 6.12 / 6.08 -> 5.49 / 5.42, frame p50 6.20 / 6.26 ->
+  5.60 / 5.58 (clouds off: screen 2.07, so the clouds' share went 1.18 -> 0.52 ms); forced `weather=cloudy`
+  4.12 / 4.12 -> 3.07 / 3.06; at 1920 x 1080 2.33 / 2.31 -> 1.98 / 2.01, GPU p50 4.35 / 4.36 -> 3.98 / 4.04.
+- **Look** (640 x 360 shots of five views, full against half): the same shapes; cloud edges a little softer and
+  their stipple twice as coarse (0.4 to 7 % of pixels differ by more than 4 of 255, under 1 % by more than 16);
+  overcast and `weather=clear` are the same to the pixel.
 - **The aurora** stays at full resolution, in the same fragment as the upsample.
 - **`clouds_res=full`** (a run argument) keeps the march per pixel: the reference for shots and speed.
 - **Stage.** The half-resolution pass is timed in `screen`, where the full march was, so `GPU_STAGES` and the
