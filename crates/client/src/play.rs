@@ -1356,13 +1356,13 @@ impl App {
         engine::items::tool(self.inv.get(self.slot).copied().flatten()).filter(|_| !self.creative)
     }
 
-    /// The hard rock aimed at while a knapping stone is in hand in survival, bare-handed (ADR 0110).
     /// Whether the hand holds a food (an item whose row `feeds`, ADR 0210), in survival.
     pub(crate) fn food_in_hand(&self) -> bool {
         let st = self.inv.get(self.slot).copied().flatten();
         !self.creative && !self.hammer && !self.bucket && st.and_then(|s| engine::items::ITEMS.get(s.item)).is_some_and(|d| d.feeds > 0)
     }
 
+    /// The hard rock aimed at while a knapping stone is in hand in survival, bare-handed (ADR 0110).
     pub(crate) fn knap_target(&self) -> Option<Block> {
         let st = self.inv.get(self.slot).copied().flatten()?;
         let (hit, _) = self.aim?;

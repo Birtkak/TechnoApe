@@ -244,7 +244,9 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
 - Alternatives rejected: a friend's draft (2026-11-25: 0-100 float vitals, its own journal and death cost, Rust-coded
   berry spawns) duplicated `Vitals`, the data journal and the clutter that already lays berries.
 - Open: food groups, spoiling, cooking doubling `feeds`, a sound and a bite's animation, the journal's first meal,
-  holding the button to eat on; the creatures that give meat (the next step: hurting animals).
+  holding the button to eat on; the creatures that give meat (the next step: hurting animals). Known: a save
+  from before 0210 left starving at the old floor (hunger 0, health 1) dies about 10 s after the load unless it eats;
+  a food eaten at 19.9 hunger is spent for 0.1 point, and a right click at full hunger does nothing, unsaid.
 
 ## Death and what it costs
 
