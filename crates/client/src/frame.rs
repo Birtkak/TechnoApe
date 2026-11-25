@@ -228,6 +228,7 @@ impl App {
                     let thump = if in_air { audio::thump(self.fell) } else { None };
                     self.fell = 0.0;
                     self.walked += (self.me.pos - self.prev).length();
+                    self.strode += (self.me.pos - self.prev).length();
                     if land || self.walked >= STEP_M {
                         self.walked = 0.0;
                         let feet = self.me.pos;
@@ -365,7 +366,12 @@ impl App {
                         self.globe.touch(b);
                     }
                 }
-                Recv::Msg(ToClient::Players(ps)) => (self.players, self.globe.others) = (ps.len(), ps),
+                Recv::Msg(ToClient::Players(ps)) => {
+                    // each one's figure sets off from where it is to where this roster puts it (ADR 0209)
+                    let now = Instant::now();
+                    self.seen = ps.iter().map(|p| (p.id, crate::looks::Seen::take(self.seen.get(&p.id).copied(), (DVec3::from_array(p.pos), DVec3::from_array(p.fwd.map(f64::from))), now))).collect();
+                    (self.players, self.globe.others) = (ps.len(), ps);
+                }
                 Recv::Msg(ToClient::Kinds(k)) => {
                     // shortcut: the creatures file is read here, once on join (small); the server's index wins
                     let rows = engine::creatures::rows(&std::fs::read_to_string("data/creatures.toml").unwrap_or_default()).unwrap_or_default();
@@ -1109,7 +1115,15 @@ impl App {
                 let d = (side * a.cos() + up.cross(side) * a.sin()) * r;
                 engine::net::Player { id: u32::MAX - k as u32, name: String::new(), pos: (p.pos - up * phys::EYE + d).to_array(), fwd: (-d).normalize().as_vec3().to_array(), pitch: 0.0, hand: 0 }
             });
-            let others: Vec<engine::net::Player> = self.globe.others.iter().cloned().chain(fake).collect();
+            // (the others where their figures are drawn, eased between the rosters, ADR 0209)
+            let at = Instant::now();
+            let eased = self.globe.others.iter().cloned().map(|mut o| {
+                if let Some((feet, fwd, _)) = self.seen.get(&o.id).map(|s| s.at(at)) {
+                    (o.pos, o.fwd) = (feet.to_array(), fwd.as_vec3().to_array());
+                }
+                o
+            });
+            let others: Vec<engine::net::Player> = eased.chain(fake).collect();
             crate::proxy::near(&self.world, me, &others, &near_cams)
         };
         self.models.hand = crate::proxy::holder(&proxies, self.globe.id) as u32;
@@ -1130,8 +1144,35 @@ impl App {
                 Some(crate::models::Beast { id: *id, model: model.clone(), act: a.act, pos: self.animal_at(*id, now)?, fwd: DVec3::from_array(a.fwd.map(f64::from)), scale: *scale })
             })
             .collect();
-        // the player's own figure in third person, from the camera; not on the title, nor with the camera in its head
-        self.models.own = (self.third() && self.home() != Menu::Title && p.pos.distance(eye.pos) > 0.6).then(|| (eye.pos - eye.up * phys::EYE - p.pos, eye.fwd, eye.up));
+        // the players' figures (ADR 0209): this player's own in third person, from the camera, not on the title nor
+        // with the camera in its head (ADR 0208); and the roster's others within 128 m, eased between its rosters,
+        // each in the look its name has in this universe
+        let looks = self.models.looks();
+        let seed = self.seed;
+        let look = |name: &str| looks.get(crate::looks::look_of(seed, name, looks.len())).cloned().unwrap_or_else(|| crate::models::FIGURE.into());
+        let my_name = self.globe.others.iter().find(|o| o.id == self.globe.id).map_or_else(|| self.args.s("name", "player"), |o| o.name.clone());
+        self.models.look = look(&my_name);
+        let clock = self.start.elapsed().as_secs_f64();
+        let mut figures = Vec::new();
+        if self.third() && self.home() != Menu::Title && p.pos.distance(eye.pos) > 0.6 {
+            let speed = (self.me.vel - eye.up * self.me.vel.dot(eye.up)).length();
+            let (clip, t) = crate::looks::clip_at(speed, self.me.on_ground && !self.flying, self.strode, clock);
+            figures.push(crate::models::Figure { look: self.models.look.clone(), body: cf, at: eye.pos - eye.up * phys::EYE - p.pos, fwd: eye.fwd, up: eye.up, clip, t, pass: self.models.hand });
+        }
+        for o in self.globe.others.iter().filter(|o| o.id != self.globe.id) {
+            let Some(s) = self.seen.get_mut(&o.id) else { continue };
+            let (feet, fwd, speed) = s.at(now);
+            s.strode += speed * dt;
+            let body = self.world.frame_at(feet);
+            let (Some(b), Some(cam)) = (self.world.bodies.get(body), cams.get(body)) else { continue };
+            if feet.distance(cam.0) > 128.0 {
+                continue;
+            }
+            // shortcut: the roster does not say who flies or swims: whoever moves walks
+            let (clip, t) = crate::looks::clip_at(speed, true, s.strode, clock + o.id as f64 * 0.37);
+            figures.push(crate::models::Figure { look: look(&o.name), body, at: feet - cam.0, fwd, up: (feet - b.centre).normalize_or(DVec3::Z), clip, t, pass: crate::proxy::holder(&proxies, o.id) as u32 });
+        }
+        self.models.figures = figures;
         self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_ref().map(|n| crate::models::Hand { item: n.as_deref(), swing }), &herd, &mut self.fx, &mut self.audio);
         self.models.upload(&gpu.queue, &gpu.mpieces);
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame

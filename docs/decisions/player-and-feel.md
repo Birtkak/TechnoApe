@@ -8,6 +8,8 @@ today. Numbers in brackets are the ADRs (`archive/NNNN-*.md`) a decision came fr
 ## The developer's calls
 
 - A third-person view on F5, "front/back like minecraft" [0208].
+- The character is animated, the other players have models too, and there are different species and coloured
+  monkeys, one given at random to a client the first time it joins a universe [0209].
 - Survival needs a first, simple health and hunger; damage is from **impact** (the speed lost to something solid, any
   direction), not from the height fallen: a slow landing from a Luna cliff costs little, a fast hit kills whatever
   the gravity [0040].
@@ -78,8 +80,27 @@ tall and as placed as its shadow's boxes (ADR 0119), turned to the look's headin
 0.6 m of the eye. A spectator has no body (ADR 0202) and stays in first person whatever F5 says. The view is not kept
 in the settings or the save: a session starts in first person. The crosshair stays in every view (in the back view it
 is off the aim by the camera's 4 m).
-Open: the figure walking, its head's pitch and what it holds (the ape has no clips yet); the other players' figures
-(they are still only shadows).
+Open: its head's pitch and what it holds. [amended 0209: the figure walks and the other players have figures]
+
+### The players' looks and figures [0209, 2026-11-25]
+A player is drawn as an ape of one of the **looks**: the models of `data/models` named `ape <species> <colour>`,
+four species (gorilla, chimp, orangutan, mandrill) in five coats (brown, black, ginger, white, blue), painted by
+`tools/paint_figures.py` on the plain ape's rig. A player's look is `looks::look_of(seed, name, n)`: a hash of the
+universe's seed and the player's name over the looks in the order of their names, so it is as good as random, the
+same on every client and at every visit, and another in another universe; no look is sent or saved (the server and
+the wire were another writer's when this was made). With no looks in the data everyone is the plain `ape`.
+The figures: every other player of the roster within 128 m is drawn in its look, and its shadow's boxes with it,
+eased from where its figure was to where the newest roster puts it over the time the roster before took (the
+roster comes once a second, ADR 0117), a move of 30 m or more put, not walked. A figure plays `p.idle`, `p.walk`
+or `p.run`, made by the walk maker (ADR 0053) from the `ape` row of `data/creatures.toml` at the player's own
+walk and sprint speeds for the plain ape and every look; the clip's time is the metres walked over that speed, so
+the feet do not slide; over 1.25 times the walk speed it runs; this player's own figure stands in the air or
+flying. The bare arm of first person is the look's `arm_r`. `MAX_MQUADS` is 1 << 19 (8 MB) for the looks' quads.
+Alternatives rejected: a tint in the shader over one model (colours outside the palette, ADR 0081; no species).
+Open: the look kept in the server's save and sent with the roster (adding a look to the data moves the players'
+looks until then); the roster at the tick's rate to those near (a figure is up to a second late, and whoever
+moves walks, also a flyer or a swimmer); the head's pitch, the held item in the hand, the swing of a dig; the
+inventory's figure is still the plain ape; a way to choose a look.
 
 ## Sprint
 

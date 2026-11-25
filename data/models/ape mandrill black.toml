@@ -1,0 +1,240 @@
+# A player's look (Claude's, listed in data/drafts.txt), made with its rig by tools/paint_figures.py `look`:
+# the ape's parts for the `ape` row's walk, facing +z. Format: docs/design/studio-tools.md "Models".
+# Painted boxes at 32 px a metre (ADR 0116), made by tools/paint_figures.py; the voxels stay empty.
+colours = ["copper dark", "copper", "dirt dark", "dirt light"]
+
+[[part]]
+name = "body"
+parent = ""
+at = [2, 4, 3]
+pivot = [2, 0, 1]
+box = [4, 4, 2]
+voxels = """
+....
+....
+
+....
+....
+
+....
+....
+
+....
+....
+"""
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [16, 15, 8]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [6.0, 3.0, -5.0]
+size = [4, 4, 5]
+uv = [110, 44]
+
+[[part]]
+name = "head"
+parent = "body"
+at = [0, 4, 0]
+pivot = [2, 0, 1.5]
+box = [4, 3, 3]
+voxels = """
+....
+....
+....
+
+....
+....
+....
+
+....
+....
+....
+"""
+
+[[part.boxes]]
+at = [2.0, 0.0, 1.0]
+size = [12, 11, 10]
+uv = [48, 0]
+
+[[part.boxes]]
+at = [5.0, 0.5, 11.0]
+size = [6, 5, 7]
+uv = [84, 44]
+
+[[part]]
+name = "arm_l"
+parent = "body"
+at = [4, -1, 0]
+pivot = [0.5, 5, 1]
+box = [1, 5, 2]
+voxels = """
+.
+.
+
+.
+.
+
+.
+.
+
+.
+.
+
+.
+.
+"""
+
+[[part.boxes]]
+at = [1.0, 8.0, 0.0]
+size = [4, 11, 8]
+uv = [30, 23]
+
+[[part.boxes]]
+at = [1.0, 3.0, 0.0]
+size = [4, 5, 8]
+uv = [36, 44]
+
+[[part.boxes]]
+at = [1.5, 0.0, 0.0]
+size = [3, 3, 2]
+uv = [0, 58]
+
+[[part.boxes]]
+at = [1.5, 0.0, 2.0]
+size = [3, 3, 2]
+uv = [10, 58]
+
+[[part.boxes]]
+at = [1.5, 0.0, 4.0]
+size = [3, 3, 2]
+uv = [20, 58]
+
+[[part.boxes]]
+at = [1.5, 0.0, 6.0]
+size = [3, 3, 2]
+uv = [30, 58]
+
+[[part.boxes]]
+at = [0.0, 3.0, 6.0]
+size = [2, 3, 2]
+uv = [40, 58]
+
+[[part]]
+name = "arm_r"
+parent = "body"
+at = [-1, -1, 0]
+pivot = [0.5, 5, 1]
+box = [1, 5, 2]
+voxels = """
+.
+.
+
+.
+.
+
+.
+.
+
+.
+.
+
+.
+.
+"""
+
+[[part.boxes]]
+at = [-1.0, 8.0, 0.0]
+size = [4, 11, 8]
+uv = [54, 23]
+
+[[part.boxes]]
+at = [-1.0, 3.0, 0.0]
+size = [4, 5, 8]
+uv = [60, 44]
+
+[[part.boxes]]
+at = [-0.5, 0.0, 0.0]
+size = [3, 3, 2]
+uv = [48, 58]
+
+[[part.boxes]]
+at = [-0.5, 0.0, 2.0]
+size = [3, 3, 2]
+uv = [58, 58]
+
+[[part.boxes]]
+at = [-0.5, 0.0, 4.0]
+size = [3, 3, 2]
+uv = [68, 58]
+
+[[part.boxes]]
+at = [-0.5, 0.0, 6.0]
+size = [3, 3, 2]
+uv = [78, 58]
+
+[[part.boxes]]
+at = [2.0, 3.0, 6.0]
+size = [2, 3, 2]
+uv = [88, 58]
+
+[[part]]
+name = "leg_l"
+parent = "body"
+at = [2, -4, 0]
+pivot = [1, 4, 1]
+box = [2, 4, 2]
+voxels = """
+..
+..
+
+..
+..
+
+..
+..
+
+..
+..
+"""
+
+[[part.boxes]]
+at = [0.0, 3.0, 0.0]
+size = [7, 13, 8]
+uv = [92, 0]
+
+[[part.boxes]]
+at = [0.0, 0.0, -1.0]
+size = [7, 3, 11]
+uv = [78, 23]
+
+[[part]]
+name = "leg_r"
+parent = "body"
+at = [0, -4, 0]
+pivot = [1, 4, 1]
+box = [2, 4, 2]
+voxels = """
+..
+..
+
+..
+..
+
+..
+..
+
+..
+..
+"""
+
+[[part.boxes]]
+at = [1.0, 3.0, 0.0]
+size = [7, 13, 8]
+uv = [0, 23]
+
+[[part.boxes]]
+at = [1.0, 0.0, -1.0]
+size = [7, 3, 11]
+uv = [0, 44]

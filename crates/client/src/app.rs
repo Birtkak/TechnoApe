@@ -173,6 +173,10 @@ pub(crate) struct App {
     pub(crate) spectator: bool,
     /// The view (F5, ADR 0208): 0 first person, 1 third person from behind, 2 from the front.
     pub(crate) person: u8,
+    /// The other players as the rosters tell them, by id, for their figures (ADR 0209); and the metres this
+    /// player has walked on the ground in all: its own figure's walk.
+    pub(crate) seen: std::collections::BTreeMap<u32, crate::looks::Seen>,
+    pub(crate) strode: f64,
     /// An F10 row's look up to its sight (radians) and when it was asked, taken when the server's teleport lands
     /// within `play::SIGHT_S`, else dropped.
     pub(crate) sight_pitch: Option<(f64, std::time::Instant)>,

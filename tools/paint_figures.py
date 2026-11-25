@@ -21,7 +21,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import paint_clutter as pc  # noqa: E402  the Model's net, the ramps, the palette, one source
 from paint_clutter import DATA, OUT, R, rnd  # noqa: E402
-from paint_textures import Palette, rich_rgb, to8  # noqa: E402
+from paint_textures import Palette, rich_rgb, to8, turned  # noqa: E402
 
 W = 128  # engine MAX_PAINT: a painting at most 128 px a side
 MAX_SIDE = 63  # a box over 63 px a side is not drawn on the instance path (ADR 0114)
@@ -33,6 +33,13 @@ RAMPS = {
     "snake scale": rich_rgb(95, 0.55, 0.02), "snake belly": rich_rgb(60, 0.38, 0.22),
     "hearth stone": rich_rgb(25, 0.08, 0.06), "ember": rich_rgb(22, 1.0, 0.12), "door copper": rich_rgb(20, 0.72, 0.05),
     "eye": rich_rgb(30, 0.15, -0.03),
+    # the players' looks (`look`): five coats, each species' own skin, the mandrill's face
+    "ape fur brown": rich_rgb(22, 0.55, -0.02), "ape fur black": rich_rgb(30, 0.08, -0.10),
+    "ape fur ginger": rich_rgb(22, 0.88, 0.05), "ape fur white": rich_rgb(40, 0.12, 0.30),
+    "ape fur blue": turned(rich_rgb(55, 0.60, 0.0), 160),  # a ramp of one hue: rich_rgb warms its lights to green
+    "gorilla skin": rich_rgb(20, 0.10, -0.03), "chimp skin": rich_rgb(22, 0.42, 0.17),
+    "orangutan skin": rich_rgb(22, 0.30, -0.01), "mandrill skin": rich_rgb(15, 0.20, -0.02),
+    "mandrill red": turned(rich_rgb(55, 0.85, 0.04), -52), "mandrill blue": turned(rich_rgb(55, 0.75, 0.04), 158),
 }
 
 
@@ -72,6 +79,7 @@ class Figure(pc.Model):
         self.parts = {}
         self.quads = 0
         self.base = ""  # a new model's file before its boxes (its rig, points, states)
+        self.own = False  # True: the rig is `base` every run (the looks), not the file's
 
     def add(self, part, at, size, paint):
         assert max(size) <= MAX_SIDE, f"{self.name} {part}: a box {size} over {MAX_SIDE} px; split it"
@@ -113,7 +121,7 @@ class Figure(pc.Model):
         """The model's own file with its voxels emptied and its boxes after each part's voxels."""
         self.lay()
         path = OUT / f"{self.name}.toml"
-        text = (path.read_text(encoding="utf-8") if path.exists() else self.base).replace("\r\n", "\n")
+        text = (path.read_text(encoding="utf-8") if path.exists() and not self.own else self.base).replace("\r\n", "\n")
         text = re.sub(r"\n\[\[part\.boxes\]\]\n(?:[a-z]+ = .*\n)*", "\n", text)  # a run before
         sizes = {p["name"]: p["box"] for p in tomllib.loads(text)["part"]}
         assert set(self.parts) <= set(sizes), f"{self.name}: boxes on parts it lacks: {set(self.parts) - set(sizes)}"
@@ -220,6 +228,142 @@ def ape(m):
         m.add(leg, (0, 3, 0), (8, 13, 8), fur)
         toes = lambda s: R("ape skin", 1.0) if s.f in ("+z", "top") and s.p[2] > 9 and int(s.p[0]) % 2 == 1 else None
         m.add(leg, (0, 0, -1), (8, 3, 11), over(coat("ape skin", (leg, "foot"), base=2.0, top=1.6, streak=0.2), toes))
+
+
+# ---------------------------------------------------------------- the players' looks: species x coats
+
+# Per species: the rig in voxels and the painted sizes in pixels (4 a voxel). body (box, painted); head (box, at in
+# the body's voxels, painted); arm (length in voxels, thickness, depth px); leg (length in voxels, width, depth,
+# gap px between the legs); face (the skin's ellipse on the head's front: rx, ry, centre y); eyes (half apart, y);
+# chest (the skin's two pecs or None: rx, ry, centre y, half apart); `extra` the species' own boxes.
+SPECIES = {
+    "gorilla": dict(skin="gorilla skin", body=((6, 6, 3), (22, 22, 12)), head=((4, 3, 3), (1, 5, 1), (16, 11, 12)),
+                    arm=(8, 6, 8), leg=(3, 8, 9, 2), face=(6.0, 4.0, 4.0), eyes=(3.2, 6.0), chest=None),
+    "chimp": dict(skin="chimp skin", body=((4, 4, 2), (12, 16, 7)), head=((4, 3, 3), (0, 4, 0), (12, 11, 11)),
+                  arm=(6, 4, 6), leg=(3, 6, 7, 1), face=(5.0, 5.5, 4.5), eyes=(2.5, 6.0), chest=None),
+    "orangutan": dict(skin="orangutan skin", body=((6, 4, 3), (20, 16, 12)), head=((4, 3, 3), (1, 4, 0), (12, 11, 10)),
+                      arm=(7, 5, 8), leg=(3, 7, 8, 1), face=(4.0, 5.0, 5.0), eyes=(1.8, 6.5), chest=None),
+    "mandrill": dict(skin="mandrill skin", body=((4, 4, 2), (16, 15, 8)), head=((4, 3, 3), (0, 4, 0), (12, 11, 10)),
+                     arm=(5, 4, 8), leg=(4, 7, 8, 0), face=(4.0, 3.5, 6.5), eyes=(2.2, 7.0), chest=None),
+}
+COATS = ["brown", "black", "ginger", "white", "blue"]
+
+
+def rig(sp):
+    """A look's file before its boxes: the ape's six parts and parents, sized and placed from the species' table."""
+    (bx, by, bz), _ = sp["body"]
+    hb, hat, _ = sp["head"]
+    alen, llen = sp["arm"][0], sp["leg"][0]
+    assert bx % 2 == 0 and by - alen >= -llen, "legs meet under the middle; the hands stay above the feet"
+    az = (bz - 2) // 2
+    parts = [("body", "", (2, llen, 3), (bx / 2, 0, bz / 2), (bx, by, bz)),
+             ("head", "body", hat, (hb[0] / 2, 0, hb[2] / 2), hb),
+             ("arm_l", "body", (bx, by - alen, az), (0.5, alen, 1), (1, alen, 2)),
+             ("arm_r", "body", (-1, by - alen, az), (0.5, alen, 1), (1, alen, 2)),
+             ("leg_l", "body", (bx // 2, -llen, az), (1, llen, 1), (2, llen, 2)),
+             ("leg_r", "body", (bx // 2 - 2, -llen, az), (1, llen, 1), (2, llen, 2))]
+    num = lambda v: f"[{', '.join(f'{x:g}' for x in v)}]"
+    text = ("# A player's look (Claude's, listed in data/drafts.txt), made with its rig by tools/paint_figures.py `look`:\n"
+            "# the ape's parts for the `ape` row's walk, facing +z. Format: docs/design/studio-tools.md \"Models\".\n"
+            'colours = ["copper dark", "copper", "dirt dark", "dirt light"]\n')
+    for name, parent, at, pivot, box in parts:
+        text += f'\n[[part]]\nname = "{name}"\nparent = "{parent}"\nat = {num(at)}\npivot = {num(pivot)}\nbox = {num(box)}\nvoxels = ""\n'
+    return text
+
+
+def look(m, species, fur_ramp):
+    """A player's look: the ape's figure in a species' proportions (`SPECIES`) and a coat's ramp."""
+    sp = SPECIES[species]
+    skin_ramp = sp["skin"]
+    m.base, m.own = rig(sp), True
+    fur = coat(fur_ramp, (species, "fur"), streak=0.9 if species == "orangutan" else 0.45)
+    skin = lambda seed, base=3.0: coat(skin_ramp, (species, seed), base=base, streak=0.25)
+    (bx, by, bz), (bw, bh, bd) = sp["body"]
+    ox, oz = (4 * bx - bw) / 2, (4 * bz - bd) / 2  # the painted body's corner in the body part
+    # body: a bare chest where the species has one
+    ch = sp["chest"]
+    chest = (lambda s: R(skin_ramp, 2.2 + 2.0 * s.up() + (rnd(species, "ch", int(s.p[0]), int(s.p[1])) - 0.5) * 0.6)
+             if s.f == "+z" and (abs(s.q[0] - bw / 2) - ch[3]) ** 2 / ch[0] ** 2 + (s.q[1] - ch[2]) ** 2 / ch[1] ** 2 < 1 else None) if ch else (lambda s: None)
+    rump = lambda s: (R("mandrill red" if abs(s.q[0] - bw / 2) < 2.5 and s.q[1] < 3 else "mandrill blue", 2.5 + 2.5 * s.up() + rnd("rump", int(s.p[0]), int(s.p[1])) - 0.5)
+                      if species == "mandrill" and s.f == "-z" and (s.q[0] - bw / 2) ** 2 / 25 + (s.q[1] - 3) ** 2 / 16 < 1 else None)
+    m.add("body", (ox, 0, oz), (bw, bh, bd), over(fur, chest, rump))
+    # head: the skin's face under a dark brow, two eyes; its corner (hx, hz) in the head part
+    hb, _, (hw, hh, hd) = sp["head"]
+    hx, hz = (4 * hb[0] - hw) / 2, (4 * hb[2] - hd) / 2
+    frx, fry, fcy = sp["face"]
+    ex, ey = sp["eyes"]
+    c = hw / 2
+
+    def face(s):
+        if s.f != "+z":
+            return None
+        x, y = s.q[0], s.q[1]
+        if abs(y - (ey + 1.5)) < 1 and abs(x - c) < ex + 2.5 and not (species != "gorilla" and abs(x - c) < 1):
+            return R(fur_ramp if species != "gorilla" else skin_ramp, 0.8)  # the brow
+        if (x - c) ** 2 / frx ** 2 + (y - fcy) ** 2 / fry ** 2 < 1:
+            return R(skin_ramp, 3.0 + 0.2 * y + (rnd(species, "face", int(x), int(y)) - 0.5) * 0.4)
+        return None
+    eyes = lambda s: (eye("+z", hx + c - ex, ey, 0.9)(s) or eye("+z", hx + c + ex, ey, 0.9)(s))
+    m.add("head", (hx, 0, hz), (hw, hh, hd), over(fur, eyes, face))
+    front = hz + hd
+    nostrils = lambda s: R(skin_ramp, 0.5) if s.f == "+z" and abs(s.q[1] - s.size[1] + 1.5) < 0.6 and abs(abs(s.q[0] - s.size[0] / 2) - 1.2) < 0.6 else None
+    mouth = lambda s: R(skin_ramp, 0.6) if s.f == "+z" and abs(s.q[1] - 1.2) < 0.5 and abs(s.q[0] - s.size[0] / 2) < s.size[0] / 2 - 1 else None
+    if species == "gorilla":
+        m.add("head", (hx + 2, hh, hz + 1), (hw - 4, 2, hd - 2), coat(fur_ramp, (species, "crest"), base=2.8))  # the crest
+        m.add("head", (hx + 4, hh + 2, hz + 2), (hw - 8, 2, hd - 5), coat(fur_ramp, (species, "crest top"), base=2.6))
+        m.add("head", (hx + 1, 6.5, front), (hw - 2, 2, 1), skin("brow", 1.6))
+        m.add("head", (hx + c - 4, 0.5, front), (8, 5, 2), over(skin("muzzle", 2.4), nostrils, mouth))
+    elif species == "chimp":
+        inner = lambda s: R(skin_ramp, 2.0) if s.f in ("+x", "-x") and 1 <= s.q[1] <= 4 and 0.5 <= s.q[2] <= 1.5 else None
+        for x in (hx - 3, hx + hw):  # the big ears
+            m.add("head", (x, 4, hz + 4), (3, 6, 2), over(skin(("ear", x), 3.6), inner))
+        m.add("head", (hx + c - 3, 0, front), (6, 5, 3), over(skin("muzzle", 4.2), mouth, lambda s: R(skin_ramp, 5) if s.f == "top" else None))
+    elif species == "orangutan":
+        rim = lambda s: R(skin_ramp, 2.2) if s.f == "+z" and (s.q[0] < 0.8 or s.q[0] > s.size[0] - 0.8 or s.q[1] > s.size[1] - 0.8) else None
+        for x in (hx - 3, hx + hw - 1):  # the cheek pads framing the face
+            m.add("head", (x, 0.5, front - 2), (4, 10, 3), over(skin(("pad", x), 3.8), rim))
+        m.add("head", (hx + c - 3, 0, front), (6, 4, 2), over(skin("muzzle", 3.0), mouth))
+    elif species == "mandrill":
+        def snout(s):
+            x, y = s.q[0], s.q[1]
+            if s.f == "top":
+                return R("mandrill red", 3.6 + s.q[2] / 3 + (rnd("ridge", int(s.q[2])) - 0.5) * 0.6) if abs(x - 3) < 1.3 else R("mandrill blue", 4.6)
+            if s.f in ("+x", "-x"):
+                return R("mandrill blue", (2.0 if int(y) % 2 else 4.2) + 0.15 * s.q[2]) if y > 1.5 else R("mandrill skin", 2.0)
+            if s.f == "+z":
+                if y > 2.5:
+                    return R("eye", 0.6) if y < 4 and abs(abs(x - 3) - 1.2) < 0.5 else R("mandrill red", 4.6)
+                return R("mandrill skin", 1.4 if y > 1 else 0.8)
+            return R("mandrill skin", 1.6)
+        m.add("head", (hx + c - 3, 0.5, front), (6, 5, 7), snout)
+        m.add("body", (ox + bw / 2 - 2, 3, oz - 5), (4, 4, 5), coat(fur_ramp, (species, "tail"), base=2.2))  # the short tail
+    # arms: a furred arm to the wrist, a palm, the fingers along z, a thumb on the inside (as the ape's)
+    alen, t, ad = sp["arm"]
+    al = bh - 4 * by + 4 * alen  # hand (y 0) to shoulder (the painted body's top)
+    az = (4 * bz - ad) / 2 - 4 * ((bz - 2) // 2)
+    nf = min(4, ad // 2)
+    armfur = coat(fur_ramp, (species, "arm"), base=2.4)  # a shade darker than the body, a pixel out: the arm reads apart
+    for arm, inner, x0 in (("arm_l", "-x", 1 - ox), ("arm_r", "+x", ox + 3 - t)):
+        m.add(arm, (x0, 8, az), (t, al - 8, ad), armfur)
+        if species == "orangutan":  # long shaggy hair over the upper arm
+            m.add(arm, (x0 - 1, al * 0.4, az - 1), (t + 2, round(al * 0.55), ad + 2), coat(fur_ramp, (arm, "shag"), base=2.6, streak=1.6))
+        knuckles = lambda s, inner=inner: R(skin_ramp, 4.6) if s.f not in (inner, "bottom") and s.q[1] < 1.2 and int(s.p[2]) % 2 == 0 else None
+        m.add(arm, (x0, 3, az), (t, 5, ad), over(skin((arm, "palm"), 2.6), knuckles))
+        for k in range(nf):
+            m.add(arm, (x0 + 0.5, 0, az + k * (ad // nf)), (t - 1, 3, ad // nf), over(skin((arm, k), 2.4 - 0.2 * k), lambda s: R(skin_ramp, 5) if s.f == "bottom" else None))
+        m.add(arm, (x0 + t - 1 if inner == "+x" else x0 - 1, 3, az + ad - 2), (2, 3, 2), skin((arm, "thumb"), 3.0))
+    # legs: fur to the ankle, a long dark foot with its toes forward
+    llen, lw, ld, gap = sp["leg"]
+    lz = (4 * bz - ld) / 2 - 4 * ((bz - 2) // 2)
+    for leg, x0 in (("leg_l", gap / 2), ("leg_r", 8 - lw - gap / 2)):
+        m.add(leg, (x0, 3, lz), (lw, 4 * llen - 3, ld), fur)
+        toes = lambda s: R(skin_ramp, 1.0) if s.f in ("+z", "top") and s.q[2] > s.size[2] - 2 and int(s.p[0]) % 2 == 1 else None
+        m.add(leg, (x0, 0, lz - 1), (lw, 3, ld + 3), over(coat(skin_ramp, (species, leg, "foot"), base=2.0, top=1.6, streak=0.2), toes))
+    if species == "orangutan":
+        belly = lambda s: R(fur_ramp, 3.4 + 2.0 * s.up() + (rnd("belly", int(s.p[0]), int(s.p[1])) - 0.5) * 0.5) if s.f != "bottom" else None
+        m.add("body", (ox + 3, 1, oz + bd), (bw - 6, 10, 2), belly)  # the round belly
+        m.add("body", (ox + 5, 2.5, oz + bd + 2), (bw - 10, 7, 1), belly)
+        m.add("body", (ox - 1, -1, oz - 1), (bw + 2, 5, bd + 2), coat(fur_ramp, (species, "skirt"), base=2.4, streak=1.6))
 
 
 def boar(m):
@@ -412,7 +556,8 @@ def torch(m):
 def make():
     ramps()
     written, total = [], 0
-    for name, recipe in [("ape", ape), ("boar", boar), ("deer", deer), ("hare", hare), ("snake", snake), ("furnace", furnace), ("leaf", leaf), ("torch", torch)]:
+    looks = [(f"ape {s} {c}", lambda m, s=s, c=c: look(m, s, f"ape fur {c}")) for s in SPECIES for c in COATS]
+    for name, recipe in [("ape", ape), ("boar", boar), ("deer", deer), ("hare", hare), ("snake", snake), ("furnace", furnace), ("leaf", leaf), ("torch", torch)] + looks:
         m = Figure(name)
         recipe(m)
         written += m.write()

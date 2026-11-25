@@ -5767,3 +5767,443 @@ ramp = "diamond"
 name = "diamond light"
 rgb = "#747c8b"
 ramp = "diamond"
+
+[[colour]]
+name = "ape fur brown r1"
+rgb = "#1a0e0a"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r2"
+rgb = "#301b11"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r3"
+rgb = "#4a2b19"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r4"
+rgb = "#663e20"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r5"
+rgb = "#80532b"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r6"
+rgb = "#996a37"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r7"
+rgb = "#b28345"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur brown r8"
+rgb = "#be9960"
+ramp = "ape fur brown rich"
+
+[[colour]]
+name = "ape fur black r1"
+rgb = "#0b0a0a"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r2"
+rgb = "#0d0c0b"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r3"
+rgb = "#1f1d1b"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r4"
+rgb = "#322f2b"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r5"
+rgb = "#46423c"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r6"
+rgb = "#59554e"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r7"
+rgb = "#6e6960"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur black r8"
+rgb = "#827d73"
+ramp = "ape fur black rich"
+
+[[colour]]
+name = "ape fur ginger r1"
+rgb = "#3d190b"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r2"
+rgb = "#58260d"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r3"
+rgb = "#78360e"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r4"
+rgb = "#9b4a0e"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r5"
+rgb = "#ba6315"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r6"
+rgb = "#d67e1e"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r7"
+rgb = "#de983c"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur ginger r8"
+rgb = "#e0af62"
+ramp = "ape fur ginger rich"
+
+[[colour]]
+name = "ape fur white r1"
+rgb = "#6d665a"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r2"
+rgb = "#7e7667"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r3"
+rgb = "#908876"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r4"
+rgb = "#a19989"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r5"
+rgb = "#b1ab9d"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r6"
+rgb = "#c1bdb3"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r7"
+rgb = "#d2cfc8"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur white r8"
+rgb = "#e3e2de"
+ramp = "ape fur white rich"
+
+[[colour]]
+name = "ape fur blue r1"
+rgb = "#0c1522"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r2"
+rgb = "#132239"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r3"
+rgb = "#193254"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r4"
+rgb = "#1f4171"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r5"
+rgb = "#29528c"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r6"
+rgb = "#3564a5"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r7"
+rgb = "#4376be"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "ape fur blue r8"
+rgb = "#638cc5"
+ramp = "ape fur blue rich"
+
+[[colour]]
+name = "gorilla skin r1"
+rgb = "#110f0e"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r2"
+rgb = "#211d1b"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r3"
+rgb = "#332e2b"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r4"
+rgb = "#473f3a"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r5"
+rgb = "#5a524b"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r6"
+rgb = "#6e665d"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r7"
+rgb = "#837a6f"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "gorilla skin r8"
+rgb = "#958e84"
+ramp = "gorilla skin rich"
+
+[[colour]]
+name = "chimp skin r1"
+rgb = "#58392c"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r2"
+rgb = "#6e4734"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r3"
+rgb = "#86593d"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r4"
+rgb = "#a16d46"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r5"
+rgb = "#b48358"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r6"
+rgb = "#bd9a74"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r7"
+rgb = "#c8b090"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "chimp skin r8"
+rgb = "#d4c4ab"
+ramp = "chimp skin rich"
+
+[[colour]]
+name = "orangutan skin r1"
+rgb = "#191210"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r2"
+rgb = "#2c201a"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r3"
+rgb = "#423126"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r4"
+rgb = "#594332"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r5"
+rgb = "#705740"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r6"
+rgb = "#866c4f"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r7"
+rgb = "#9c825f"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "orangutan skin r8"
+rgb = "#aa9778"
+ramp = "orangutan skin rich"
+
+[[colour]]
+name = "mandrill skin r1"
+rgb = "#15100f"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r2"
+rgb = "#261d1b"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r3"
+rgb = "#3a2d29"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r4"
+rgb = "#503f36"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r5"
+rgb = "#655246"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r6"
+rgb = "#7a6656"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r7"
+rgb = "#8f7b67"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill skin r8"
+rgb = "#a0907e"
+ramp = "mandrill skin rich"
+
+[[colour]]
+name = "mandrill red r1"
+rgb = "#370d0b"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r2"
+rgb = "#52110e"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r3"
+rgb = "#721510"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r4"
+rgb = "#941710"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r5"
+rgb = "#b21f17"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r6"
+rgb = "#cf2920"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r7"
+rgb = "#da433b"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill red r8"
+rgb = "#dc6660"
+ramp = "mandrill red rich"
+
+[[colour]]
+name = "mandrill blue r1"
+rgb = "#0d1f35"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r2"
+rgb = "#122d4e"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r3"
+rgb = "#153c6c"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r4"
+rgb = "#184d8d"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r5"
+rgb = "#205ea9"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r6"
+rgb = "#2b70c4"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r7"
+rgb = "#4484d1"
+ramp = "mandrill blue rich"
+
+[[colour]]
+name = "mandrill blue r8"
+rgb = "#6799d5"
+ramp = "mandrill blue rich"
