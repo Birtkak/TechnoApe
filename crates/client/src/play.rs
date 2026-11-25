@@ -1363,7 +1363,9 @@ impl App {
     fn animal_aimed(&self, eye: DVec3, fwd: DVec3) -> Option<u32> {
         let now = std::time::Instant::now();
         let block = self.aim.map_or(f64::MAX, |(hit, _)| (self.world.block_centre(hit) - eye).length() - 0.5);
-        let reach = engine::herds::HIT_REACH.min(block);
+        // a pick-up in front of it keeps its click (the review of 0211)
+        let thing = self.aim_thing.map_or(f64::MAX, |(b, _)| (self.world.block_centre(b) - eye).length());
+        let reach = engine::herds::HIT_REACH.min(block).min(thing);
         self.animals.iter().filter_map(|(id, (a, _, _))| {
             let feet = self.animal_at(*id, now)?;
             let s = self.kinds.get(a.kind as usize).cloned().flatten().map_or(1.0, |k| k.2 as f64);

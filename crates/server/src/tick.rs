@@ -438,9 +438,10 @@ impl Server {
         for c in self.clients.iter().filter(|c| c.spectator && self.world.frame_at(c.phys.pos) == 0) {
             self.herds.wake(&self.world, c.phys.pos, t);
         }
-        let bites = self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
-        // a charging biter's bites (ADR 0211): `players` is `herd_players`'s order
+        // a charging biter's bites (ADR 0211): `players` is `herd_players`'s order; only the living in survival
         let who: Vec<usize> = (0..self.clients.len()).filter(|&i| !self.clients[i].spectator && self.world.frame_at(self.clients[i].phys.pos) == 0).collect();
+        let prey: Vec<bool> = who.iter().map(|&i| !self.clients[i].creative && self.clients[i].vitals.dead.is_none()).collect();
+        let bites = self.herds.tick_with(&self.world, &players, &prey, t, steps as f64 * phys::DT);
         for (k, kind) in bites {
             let (what, n) = (self.herds.kinds[kind as usize].name.clone(), self.herds.kinds[kind as usize].bite);
             let c = &mut self.clients[who[k]];

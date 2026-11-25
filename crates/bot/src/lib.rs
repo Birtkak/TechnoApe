@@ -626,7 +626,7 @@ impl Bot {
 
     /// The animals it sees (ADR 0083): how many, and the nearest five with kind, distance and what they do.
     pub fn animals_json(&self) -> String {
-        const ACTS: [&str; 5] = ["stand", "graze", "wander", "flee", "sleep"];
+        const ACTS: [&str; 6] = ["stand", "graze", "wander", "flee", "sleep", "charge"];
         let mut near: Vec<(f64, &engine::net::Animal)> = self.animals.values().map(|a| ((DVec3::from_array(a.pos) - self.pos).length(), a)).collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
         let list: Vec<String> = near.iter().take(5).map(|(d, a)| {

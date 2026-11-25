@@ -490,11 +490,13 @@ kept as a delta, and not ticked when nobody is near. Design: `docs/design/creatu
   without it loads with none). At the kind's health it is gone and `raw meat` (feeds 3) lies in a pile where it
   stood, counted made. Hurt, a biter turns `Mind::Charge` (appended to the enum, the wire's act 5, drawn running)
   for 6 s at its run speed towards the nearest player within 20 m, and bites one within 1.6 m of its feet at most
-  every 1.5 s: "<name> was killed by a boar". Anything else, and the rest of the herd within 20 m, flee from the
+  every 1.5 s: "<name> was killed by a boar"; only the living in survival are bitten (`Herds::tick_with`). Anything else, and the rest of the herd within 20 m, flee from the
   hitter. Its voice plays at each hit (the call counter). A wound heals whole 5 min after the last hit.
 - Bots: `hit` (the nearest animal it knows); the soak's bots hit made-up and real ids at random.
 - Open: a flinch on the hit (`creatures::act` has `hurt`), an outline on the aimed animal, cooking, hides, hostile
-  creatures, animals on Luna, a charge in creative (it charges, it does not bite).
+  creatures, animals on Luna, a charge in creative (it charges, it does not bite). Known: a creative player hits as a
+  fist (its tools are a builder's); a kill in one blow does not scare the rest of the herd; a boar boxed in stops its
+  charge; the aim takes a block's centre less 0.5 m as its distance.
 
 ## No longer holds
 

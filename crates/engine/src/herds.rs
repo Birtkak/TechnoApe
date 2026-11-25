@@ -265,8 +265,15 @@ impl Herds {
     /// One tick: wake the sites near `players` (feet and velocity in body 0's frame), then step every awake
     /// animal by `dt` (0: no physics this tick) up to `MAX_AWAKE`. `tick` is the herds' clock (the server
     /// passes `clock`); it is one more after.
-    /// The bites of this tick (ADR 0211): the player's place in `players` and the biter's kind.
+    /// The bites of this tick (ADR 0211): the player's place in `players` and the biter's kind. Every player
+    /// may be bitten; `tick_with` says which.
     pub fn tick(&mut self, world: &World, players: &[(DVec3, DVec3)], tick: u64, dt: f64) -> Vec<(usize, u16)> {
+        self.tick_with(world, players, &[], tick, dt)
+    }
+
+    /// `tick` where only the players whose `prey` is true can be bitten (alive, in survival; the review of
+    /// 0211: a creative or dead one beside took the bite); an empty `prey` is every player.
+    pub fn tick_with(&mut self, world: &World, players: &[(DVec3, DVec3)], prey: &[bool], tick: u64, dt: f64) -> Vec<(usize, u16)> {
         let mut bites = Vec::new();
         for (feet, _) in players {
             self.wake(world, *feet, tick);
@@ -295,7 +302,7 @@ impl Herds {
                 // a charging biter next to a player bites, at most every BITE_EVERY
                 if a.mind == Mind::Charge && kind.bite > 0 {
                     let w = self.wounds.entry(a.id).or_default();
-                    let near = players.iter().enumerate().map(|(k, (feet, _))| (k, (*feet - a.p.pos).length())).filter(|(_, d)| *d < BITE_RANGE).min_by(|x, y| x.1.total_cmp(&y.1));
+                    let near = players.iter().enumerate().filter(|(k, _)| prey.get(*k).copied().unwrap_or(true)).map(|(k, (feet, _))| (k, (*feet - a.p.pos).length())).filter(|(_, d)| *d < BITE_RANGE).min_by(|x, y| x.1.total_cmp(&y.1));
                     if let Some((k, _)) = near.filter(|_| tick >= w.bite) {
                         w.bite = tick + BITE_EVERY;
                         bites.push((k, a.kind));
@@ -394,6 +401,11 @@ impl Herds {
     /// forget empty sites the seed makes again when long-running servers show their size.
     pub fn to_bytes(&self) -> Vec<u8> {
         let names: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).collect();
+        // no animal hurt: the layout from before ADR 0211, so a world without wounds hashes as it did (the
+        // recordings' checkpoints)
+        if self.wounds.is_empty() {
+            return postcard::to_allocvec(&(self.next, self.clock, names, &self.sites)).expect("herds serialise");
+        }
         postcard::to_allocvec(&(self.next, self.clock, names, &self.sites, &self.wounds)).expect("herds serialise")
     }
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), String> {
@@ -923,6 +935,22 @@ mod tests {
         }
         assert_ne!(h.find(id).unwrap().mind, Mind::Charge);
         assert!(h.wounds.is_empty(), "healed");
+    }
+
+    /// The review of 0211: a player who cannot be bitten (creative, dead) beside one who can takes no bite.
+    #[test]
+    fn a_boar_bites_only_its_prey() {
+        let mut w = world();
+        noon(&mut w);
+        let mut h = herds();
+        let p = spawn(&w);
+        h.tick(&w, &[(p, DVec3::ZERO)], 0, 0.05);
+        let id = h.add(&w, "boar", (p - w.bodies[0].centre).normalize(), DVec3::X, 0).unwrap();
+        let at = h.find(id).unwrap().p.pos;
+        let side = phys::tangent(DVec3::X, phys::up(&w, at), DVec3::Y);
+        assert_eq!(h.strike(&w, id, 1, at + side, 1), Struck::Hurt);
+        let bites = h.tick_with(&w, &[(at + side * 0.5, DVec3::ZERO), (at + side, DVec3::ZERO)], &[false, true], 2, 0.0);
+        assert_eq!(bites.iter().map(|b| b.0).collect::<Vec<_>>(), vec![1], "the nearer one is not prey: the other is bitten");
     }
 
     /// The aim at an animal: a ray meets its body's sphere, nearest point first; past it or beside it, no.
