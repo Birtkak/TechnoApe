@@ -5161,8 +5161,11 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     let snow = BLOCKS.id("snow");
     let mut t = 0;
     while s.world.block(green_b) != snow && t < 120 * TICK_HZ as u64 {
+        let parts = |s: &Server| { let w = &s.world.water; (w.counted(), w.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0), w.froze.get(&engine::fluids::WATER).copied().unwrap_or(0), s.world.snow.held(), s.world.snow.lent, s.made, s.removed, w.rained, w.sea_extra, s.world.snow.owing()) }; // DEBUG
+        let before = parts(&s); // DEBUG
         s.tick();
         t += 1;
+        if s.water_ledger() != 0 { eprintln!("DEBUG tick {} t {t}: (counted, steam, ice, snow held, lent, made, removed, rained, sea_extra, owing) before {:?} after {:?}", s.tick, before, parts(&s)); } // DEBUG
         assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
     }
     assert_eq!((s.world.block(green_b), plant(&s, green_b)), (snow, None), "a block of snow over the plant, the plant not drawn");

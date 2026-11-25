@@ -86,6 +86,8 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   table and no higher; bail it and it fills again, counted. No keys or commands. `technoape-server report=1 seed=
   planet=` prints `ground_water`: the table's depth by province, in the wettest and driest quarters, the share of
   tight land (no table), springs and their streams, the flooded caves and the depth at and round the spawn.
+- The bake's coarser year (generation 14, ADR 0204): a new world's climate is run on an air grid twice as coarse, so
+  the 4 km planet bakes in about a minute where it took three; `gen=13` makes a world on the year as it was run before.
 - The conformal grid (generation 13, ADR 0131): every body's block tops are square, a metre at a face's middle and
   at its edges, smaller only near the cube's 8 corners (about 0.43 m 100 columns from one, 0.3 m in its last 32). A
   world of generation 12 or older keeps the old grid (1.09 x 0.77 m tops at a face edge's middle); `gen=12` makes a
