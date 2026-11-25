@@ -2,7 +2,7 @@
 //! points each (ten segments of the HUD, a half segment a point). Health falls with an impact: the speed a
 //! body loses when it hits something solid, in any direction, whatever the pull. Hunger falls with the
 //! player's own physics steps, faster walking and with every block dug. Full hunger heals, empty hunger
-//! hurts, down to 1. The client only draws what the server sends.
+//! hurts, to death (ADR 0210: food exists). The client only draws what the server sends.
 use crate::phys::{self, Input};
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
@@ -147,31 +147,42 @@ impl Default for Vitals {
 impl Vitals {
     /// One physics step of a living survival player: hunger drains (twice as fast `walking`), then health
     /// comes back or goes with it.
-    pub fn step(&mut self, walking: bool) {
-        self.drain(if walking { WALK_DRAIN } else { 1.0 });
+    pub fn step(&mut self, walking: bool) -> bool {
+        self.drain(if walking { WALK_DRAIN } else { 1.0 }, || "starved".into())
     }
 
     /// One step at `rate` times the standing drain (`step`'s, or `rate`'s).
-    pub fn drain(&mut self, rate: f64) {
+    /// Empty hunger takes health to death by `cause` (ADR 0210: there is food now). True when that killed.
+    pub fn drain(&mut self, rate: f64, cause: impl FnOnce() -> String) -> bool {
         if self.dead.is_some() {
-            return;
+            return false;
         }
         self.hunger = drained(self.hunger, rate);
-        // shortcut: hunger alone never kills (the floor at 1) because there is no food yet; let it kill once
-        // food can be found or made
-        let (every, d) = match (self.hunger > FED, self.hunger <= 0.0) {
+        let (every, heal) = match (self.hunger > FED, self.hunger <= 0.0) {
             // (no healing while thirst is empty, however fed: `parch` takes health then)
-            (true, _) if self.health < MAX && self.thirst > 0.0 => (REGEN, 1i32),
-            (_, true) if self.health > 1 => (STARVE, -1),
+            (true, _) if self.health < MAX && self.thirst > 0.0 => (REGEN, true),
+            (_, true) => (STARVE, false),
             _ => {
                 self.clock = 0;
-                return;
+                return false;
             }
         };
         self.clock += 1;
-        if self.clock >= every {
-            self.clock = 0;
-            self.health = (self.health as i32 + d) as u8;
+        if self.clock < every {
+            return false;
+        }
+        self.clock = 0;
+        if heal {
+            self.health += 1;
+            return false;
+        }
+        self.hurt(1, cause)
+    }
+
+    /// One food eaten that `feeds` hunger points (ADR 0210), to full at most.
+    pub fn eat(&mut self, feeds: u8) {
+        if self.dead.is_none() {
+            self.hunger = (self.hunger + feeds as f64).min(MAX as f64);
         }
     }
 
@@ -451,6 +462,18 @@ mod tests {
     }
 
     #[test]
+    fn eating_fills_hunger_to_full_and_not_when_dead() {
+        let mut v = Vitals { hunger: 5.5, ..Default::default() };
+        v.eat(3);
+        assert_eq!(v.hunger, 8.5);
+        v.eat(200);
+        assert_eq!(v.hunger, MAX as f64, "never over full");
+        let mut d = Vitals { hunger: 1.0, dead: Some("x".into()), ..Default::default() };
+        d.eat(5);
+        assert_eq!(d.hunger, 1.0, "the dead do not eat");
+    }
+
+    #[test]
     fn hunger_lasts_a_day_standing_and_half_a_day_walking() {
         let day = (crate::sky::DAY / phys::DT) as u32;
         let mut v = Vitals::default();
@@ -490,7 +513,7 @@ mod tests {
         for _ in 0..STARVE * 10 {
             v.step(true);
         }
-        assert_eq!((v.health, v.dead.clone()), (1, None), "hunger alone never kills");
+        assert_eq!((v.health, v.dead.clone()), (0, Some("starved".into())), "with food in the world, hunger kills (ADR 0210)");
         let mut v = Vitals::default();
         v.step(false);
         assert_eq!(v.health, MAX, "never over full");
@@ -604,7 +627,7 @@ mod tests {
         let mut v = Vitals { thirst: 0.0, health: 5, ..Default::default() };
         for _ in 0..PARCH - 1 {
             assert!(!v.parch(1.0, || "ape died of thirst".into()));
-            v.drain(1.0);
+            v.drain(1.0, || "starved".into());
         }
         assert_eq!(v.health, 5, "not yet, and full hunger does not heal");
         v.parch(1.0, || "ape died of thirst".into());
@@ -614,7 +637,7 @@ mod tests {
         let mut v = Vitals::default();
         let mut t = 0u32;
         while v.dead.is_none() && t < 10_000_000 {
-            v.drain(1.0);
+            v.drain(1.0, || "starved".into());
             v.parch(1.0, || "thirst".into());
             t += 1;
         }

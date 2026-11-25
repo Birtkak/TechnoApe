@@ -82,6 +82,9 @@ struct Row {
     head: Option<String>,
     knap: Option<(String, u8)>,
     leaves: Option<String>,
+    /// Hunger points one of it fills, eaten (ADR 0210); 0 or left out: not food.
+    #[serde(default)]
+    feeds: u8,
 }
 
 fn full() -> u16 {
@@ -163,6 +166,8 @@ pub struct Def {
     pub tool: Option<Tool>,
     /// Struck this many times on hard rock (`knaps`) it becomes that item, one of it at a time.
     pub knap: Option<(u16, u8)>,
+    /// Hunger points one of it fills, eaten (ADR 0210); 0: not food.
+    pub feeds: u8,
 }
 
 /// Seconds between two strikes that count (ADR 0110): holding or hammering the button does not knap faster.
@@ -233,7 +238,10 @@ impl Items {
                 }
                 _ => return Err(format!("item '{}': a tool names both its kind and its head", r.name)),
             };
-            defs.push(Def { id: ITEM_BASE + k as u16, name: r.name.clone(), stack: r.stack, pack: r.pack, look, tool, knap: None });
+            if r.feeds > crate::vitals::MAX {
+                return Err(format!("item '{}': feeds 0 to {} hunger points", r.name, crate::vitals::MAX));
+            }
+            defs.push(Def { id: ITEM_BASE + k as u16, name: r.name.clone(), stack: r.stack, pack: r.pack, look, tool, knap: None, feeds: r.feeds });
         }
         for m in &f.material {
             if !(m.speed > 1.0 && m.speed <= 20.0) || !(1..=4).contains(&m.grade) || !(1..=10000).contains(&m.uses) || f.material.iter().filter(|o| o.name == m.name).count() > 1 {
@@ -518,6 +526,7 @@ mod tests {
             ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\nprospect=500", "prospect"),
             ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='pick'\nhead='m'\nleaves='nothing'", "leaves"),
             ("[[item]]\nname='x'\nlook='stone'\nleaves='stone'", "leaves"),
+            ("[[item]]\nname='x'\nlook='stone'\nfeeds=21", "feeds"),
         ] {
             let e = Items::parse(row).err().unwrap_or_default();
             assert!(e.contains(says), "{row}: {e}");
@@ -556,6 +565,14 @@ mod tests {
         let t = axe.tool.as_ref().unwrap();
         assert!(t.kind.is_none() && t.grade == 1 && t.speed > 1.0 && axe.stack == 1);
         assert_eq!(ITEMS.get(ITEMS.named("flint").unwrap()).unwrap().knap, Some((axe.id, 4)));
+    }
+
+    /// The first foods (ADR 0210): what is found on the ground feeds; a block or a tool does not.
+    #[test]
+    fn foraged_food_feeds_and_other_things_do_not() {
+        let feeds = |n: &str| ITEMS.get(ITEMS.named(n).unwrap()).unwrap().feeds;
+        assert!(feeds("berries") > 0 && feeds("mushroom") > 0);
+        assert_eq!((feeds("flint"), feeds("hand axe")), (0, 0));
     }
 
     /// A tool's payload counts its digs (ADR 0110): it wears one a dig and is gone at its last, leaving nothing.

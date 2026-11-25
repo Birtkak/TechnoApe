@@ -179,6 +179,65 @@ impl Server {
         }
     }
 
+    /// Client i eats one of the food in hand (ADR 0210): alive, in survival, an item that `feeds`, hunger not
+    /// full; the ledger counts it gone. Refused, nothing happens.
+    pub(super) fn eat(&mut self, i: usize) {
+        let c = &mut self.clients[i];
+        let k = c.hand as usize;
+        let Some(st) = c.slots[k].filter(|_| !c.creative && !c.spectator && c.vitals.dead.is_none() && c.vitals.hunger < vitals::MAX as f64) else { return };
+        let Some(feeds) = ITEMS.get(st.item).map(|d| d.feeds).filter(|f| *f > 0) else { return };
+        c.slots[k] = (st.n > 1).then_some(Stack { n: st.n - 1, ..st });
+        c.vitals.eat(feeds);
+        c.inv_dirty = true;
+        *self.item_made.entry(st.item).or_default() -= 1;
+    }
+
+    /// Client i hits animal `id` (ADR 0211, `ToServer::Hit`'s rules). A killed one leaves its meat in a pile
+    /// where it stood, the ledger counting it made.
+    pub(super) fn hit(&mut self, i: usize, id: u32) {
+        let (tick, world) = (self.tick, &self.world);
+        let wait = (engine::herds::HIT_WAIT_S * TICK_HZ).round() as u64;
+        let c = &self.clients[i];
+        if c.vitals.dead.is_some() || c.hit_at.is_some_and(|t| tick < t + wait) {
+            return;
+        }
+        let Some(a) = self.herds.find(id) else { return };
+        let (centre, r) = self.herds.body(world, a);
+        let eye = c.phys.pos + phys::up(world, c.phys.pos) * phys::EYE;
+        if (centre - eye).length() > engine::herds::HIT_REACH + r {
+            return;
+        }
+        let points = c.tool().map_or(1, |t| 2 + 2 * t.grade);
+        let (feet, clock) = (c.phys.pos, self.herds.clock);
+        self.clients[i].hit_at = Some(tick);
+        let struck = self.herds.strike(world, id, points, feet, clock);
+        if struck == engine::herds::Struck::Missed {
+            return;
+        }
+        // a tool wears a use a hit, as a dig (its last leaves what its row says)
+        let c = &mut self.clients[i];
+        let k = c.hand as usize;
+        if c.tool().is_some() && !c.creative {
+            let worn = c.slots[k].map_or(AIR, |s| s.item);
+            if items::wear(&mut c.slots[k]) {
+                *self.item_made.entry(worn).or_default() -= 1;
+                self.events.push(Event::Worn { item: worn, by: c.player.id });
+                if let Some(l) = c.slots[k] {
+                    *self.item_made.entry(l.item).or_default() += 1;
+                }
+            }
+            c.inv_dirty = true;
+        }
+        if let engine::herds::Struck::Killed { kind, at } = struck {
+            let n = self.herds.kinds[kind as usize].meat as u16;
+            if let Some(meat) = ITEMS.named("raw meat").filter(|_| n > 0) {
+                let b = self.world.block_at(at + phys::up(&self.world, at) * 0.3);
+                self.lay(b, vec![Stack::new(meat, n)], (0, 0));
+                *self.item_made.entry(meat).or_default() += n as i64;
+            }
+        }
+    }
+
     /// Client i strikes the prospecting tool in hand on block `at` (ADR 0138): alive,
     /// within reach, hard rock there (`items::knaps`: rock, ore, the altered rocks), at most one every
     /// `items::PROSPECT_WAIT_S`. It costs the tool a use (its last leaves nothing) and only that player is

@@ -114,6 +114,7 @@ impl Server {
                 sent_hand: AIR,
                 knap: (0, 0, 0),
                 prospected: None,
+                hit_at: None,
                 journal: engine::journal::JOURNAL.fresh(),
                 told: None,
                 kept: Vec::new(),
@@ -245,7 +246,7 @@ impl Server {
                     }
                     // (creative too: it would change the mode it leaves to. Kept: Move, for F10 and a teleport; Hand, the
                     // hotbar slot only)
-                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_) | ToServer::Creative(_)) if self.clients[i].spectator => {}
+                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_) | ToServer::Eat | ToServer::Hit(_) | ToServer::Creative(_)) if self.clients[i].spectator => {}
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         // the steps the client took before this edit came before it: they are taken first, so the
                         // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
@@ -317,6 +318,8 @@ impl Server {
                     Recv::Msg(ToServer::Drink(at)) => self.hold_drink(i, at),
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
+                    Recv::Msg(ToServer::Eat) => self.eat(i),
+                    Recv::Msg(ToServer::Hit(id)) => self.hit(i, id),
                     Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
                     Recv::Msg(ToServer::Use(at)) => self.use_block(i, at),
                     Recv::Msg(ToServer::Close) => self.uncraft(i),
@@ -435,7 +438,23 @@ impl Server {
         for c in self.clients.iter().filter(|c| c.spectator && self.world.frame_at(c.phys.pos) == 0) {
             self.herds.wake(&self.world, c.phys.pos, t);
         }
-        self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
+        // a charging biter's bites (ADR 0211): `players` is `herd_players`'s order; only the living in survival
+        let who: Vec<usize> = (0..self.clients.len()).filter(|&i| !self.clients[i].spectator && self.world.frame_at(self.clients[i].phys.pos) == 0).collect();
+        let prey: Vec<bool> = who.iter().map(|&i| !self.clients[i].creative && self.clients[i].vitals.dead.is_none()).collect();
+        let bites = self.herds.tick_with(&self.world, &players, &prey, t, steps as f64 * phys::DT);
+        for (k, kind) in bites {
+            let (what, n) = (self.herds.kinds[kind as usize].name.clone(), self.herds.kinds[kind as usize].bite);
+            let c = &mut self.clients[who[k]];
+            if c.creative {
+                continue;
+            }
+            let name = if c.player.name.is_empty() { "?".to_string() } else { c.player.name.clone() };
+            if c.vitals.hurt(n, || format!("{name} was killed by a {what}")) {
+                let line = c.vitals.dead.clone().unwrap_or_default();
+                self.died(&line);
+                self.say(line);
+            }
+        }
         self.send_animals(t);
         // once a second stored lava gives its heat to the air and rock round it, and what froze through is basalt
         // (lava basics, draft decision): through the edits as any other block, so the clients and the save see it
@@ -869,7 +888,9 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
         }
     }
     // (a sprint's drain only for a step that sprinted: not into a wall, not in the water; ADR 0118)
-    c.vitals.drain(vitals::rate(inp, sprinted));
+    if c.vitals.drain(vitals::rate(inp, sprinted), || format!("{name} starved")) {
+        deaths.extend(c.vitals.dead.clone());
+    }
     if c.vitals.parch(vitals::rate(inp, sprinted), || format!("{name} died of thirst")) {
         deaths.extend(c.vitals.dead.clone());
     }

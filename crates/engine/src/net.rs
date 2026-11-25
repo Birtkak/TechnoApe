@@ -86,6 +86,13 @@ pub enum ToServer {
     /// judged when the cell comes), each of the player's physics steps drinks (`Vitals::drink`). Sent on a
     /// change, as `Dig`; death lets go.
     Drink(Option<Block>),
+    /// Eat one of the food in hand (ADR 0210): alive, in survival, an item whose row `feeds`, hunger not
+    /// full. Answered by `Vitals` and `Inventory`; refused, nothing.
+    Eat,
+    /// The dig button on animal `id` (ADR 0211): alive, not a spectator, its body within `herds::HIT_REACH` of
+    /// the eye, at most one every `herds::HIT_WAIT_S`. Fist 1 point, a tool 2 + 2 a grade (the hand axe 4); a
+    /// tool wears a use. Killed, it leaves its row's `meat` as raw meat in a pile.
+    Hit(u32),
 }
 
 impl ToServer {

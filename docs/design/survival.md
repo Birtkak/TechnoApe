@@ -8,12 +8,12 @@ The first, simple version (ADR 0040); both grow deeper later (food, air, tempera
   kills. Water breaks a fall.
 - **Hunger**, 0 to 20, drains over one game day standing, twice as fast walking, and a little per block dug.
   It follows the player's own steps, so a time warp does not starve anyone. Above 14 health comes back
-  (a point per 8 s); at 0 health drains (a point per 10 s) down to 1: until there is food, hunger alone
-  never kills.
+  (a point per 8 s); at 0 health drains (a point per 10 s), to death. Food fills it: a berry or a mushroom
+  in hand, eaten with the place button (ADR 0210).
 - **Death** at 0 health: the screen dims, says how, and offers Respawn (Terra's spawn, full health and
   hunger, the inventory kept) or the title. Everyone reads how in the chat.
 - **Creative** has neither, and shows no bars: the bars over the hotbar are how survival is told from creative.
-- Until food exists: `/heal`, `/feed [points]`, `/hurt <points>`.
+- To try them: `/heal`, `/feed [points]`, `/hurt <points>`.
 
 Where it grows (thirst, breath, warmth, food as items, what dying costs, and the order to build them):
 `needs.md`, a proposal. Still open there: whether creative flight should ever be hurt (today: no).

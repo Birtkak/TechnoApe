@@ -48,7 +48,7 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0037 | Gravity by size, rare blood moons, and a batch of play-test fixes | [grid-and-planets.md](grid-and-planets.md) - Gravity | amended by 0041 |
 | 0038 | Three seams: the window between worlds, the ground in fast flight, the far planet's band | [streaming-and-meshing.md](streaming-and-meshing.md) - The LOD walk and the cover | amended by 0073 |
 | 0039 | Block patterns with parts | [items-and-crafting.md](items-and-crafting.md) - Block patterns with parts [0039] | amended by 0045 |
-| 0040 | Health, hunger, impact and death | [player-and-feel.md](player-and-feel.md) - Health, hunger and impact | amended by 0132 |
+| 0040 | Health, hunger, impact and death | [player-and-feel.md](player-and-feel.md) - Health, hunger and impact | amended by 0132, 0210 |
 | 0041 | The evening play-test batch of 2026-11-11 | [player-and-feel.md](player-and-feel.md) - Play-test fixes of 2026-11-11 evening (mixed batch) | amended by 0132 |
 | 0042 | Terra's climate from the air grid, and fifteen biomes | [bake-and-landforms.md](bake-and-landforms.md) - The air grid and the climate | amended by 0060 |
 | 0043 | The bake in the engine: Terra's map, biome ground and still plants | [bake-and-landforms.md](bake-and-landforms.md) - The bake in the engine | amended by 0058 |
@@ -218,3 +218,5 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0207 | Hill country (the shields rise as high as a range, hills 700 m apart, the peaks' stretch from 10 m, the tree line at 150 m) and Mars's shields as lobed domes: world generation 15, Terra's map version 12, Mars's 202 | [bake-and-landforms.md](bake-and-landforms.md) - Hill country, and Mars's shields as domes | in force |
 | 0208 | The third-person view on F5: first person, from 4 m behind, from 4 m ahead looking back; the camera stops short of a block, the aim stays the eye's, the player's own figure drawn | [player-and-feel.md](player-and-feel.md) - The third-person view on F5 | amended by 0209 |
 | 0209 | The players' looks and figures: twenty apes (four species, five coats) by a hash of the universe's seed and the player's name; the other players drawn, eased between rosters; the figures walk and run | [player-and-feel.md](player-and-feel.md) - The players' looks and figures | in force |
+| 0210 | Eating: `feeds` on an item's row (berries 2, mushroom 3), the place button with a food in hand eats one (`ToServer::Eat`), empty hunger now kills | [player-and-feel.md](player-and-feel.md) - Eating | in force |
+| 0211 | Hurting animals: `health`, `meat`, `bite` on a creature row; the dig button on an animal hits it (`ToServer::Hit`); killed it leaves raw meat; a hurt boar charges and bites; wounds heal in 5 min | [plants-and-creatures.md](plants-and-creatures.md) - Hurting animals | in force |

@@ -270,6 +270,8 @@ struct Client {
     knap: (u16, u8, u64),
     /// The tick of its last prospecting strike that was answered (ADR 0138).
     prospected: Option<u64>,
+    /// The tick of its last hit on an animal (ADR 0211).
+    hit_at: Option<u64>,
     /// Its journal (draft ADR journal-data): a state per entry of `JOURNAL`, saved; what its client was last
     /// told of it (None: nothing yet).
     journal: Vec<engine::journal::State>,

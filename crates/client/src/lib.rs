@@ -686,6 +686,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         players: 0,
         kinds: Vec::new(),
         animals: Default::default(),
+        aim_animal: None,
         streamer,
         run,
         start: Instant::now(),

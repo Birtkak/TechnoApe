@@ -82,6 +82,10 @@ pub enum Cmd {
     Sprint(bool),
     /// Drink from the water at this offset, held for `DRINK_S`.
     Drink(DVec3),
+    /// Eat one of the food in hand (ADR 0210).
+    Eat,
+    /// Hit the nearest animal (ADR 0211), wherever it is: the server judges the reach.
+    Hit,
     /// Look at the middle of the block at this offset from the feet, until the next walk (the server's
     /// journal reads the look, draft ADR journal-data).
     Look(DVec3),
@@ -130,6 +134,8 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "cast" => Cmd::Cast(v()?, (w.len() > 4).then(|| w[4..].join(" "))),
         "furnace" => Cmd::Furnace,
         "drink" => Cmd::Drink(v()?),
+        "eat" => Cmd::Eat,
+        "hit" => Cmd::Hit,
         "look" => Cmd::Look(v()?),
         "sprint" => match w.get(1).copied() {
             Some("on") => Cmd::Sprint(true),
@@ -502,6 +508,13 @@ impl Bot {
                 self.asking = Some(self.after(2.0));
             }
             Cmd::Sprint(on) => self.sprint = *on,
+            Cmd::Eat => self.link.send(ToServer::Eat),
+            Cmd::Hit => {
+                let me = self.feet();
+                if let Some(a) = self.animals.values().min_by(|x, y| (DVec3::from_array(x.pos) - me).length().total_cmp(&(DVec3::from_array(y.pos) - me).length())) {
+                    self.link.send(ToServer::Hit(a.id));
+                }
+            }
             Cmd::Drink(d) => {
                 self.link.send(ToServer::Drink(Some(w.block_at(self.feet() + *d))));
                 self.drinking = Some(self.after(DRINK_S));
@@ -613,7 +626,7 @@ impl Bot {
 
     /// The animals it sees (ADR 0083): how many, and the nearest five with kind, distance and what they do.
     pub fn animals_json(&self) -> String {
-        const ACTS: [&str; 5] = ["stand", "graze", "wander", "flee", "sleep"];
+        const ACTS: [&str; 6] = ["stand", "graze", "wander", "flee", "sleep", "charge"];
         let mut near: Vec<(f64, &engine::net::Animal)> = self.animals.values().map(|a| ((DVec3::from_array(a.pos) - self.pos).length(), a)).collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
         let list: Vec<String> = near.iter().take(5).map(|(d, a)| {

@@ -431,6 +431,8 @@ impl App {
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pick-up, a drink, a pour, a strike or a place against it
             "R" if self.use_target().is_some() => self.use_block(),
+            // an animal aimed at: the dig button hits it (ADR 0211); the server judges reach and the wait
+            "L" if self.aim_animal.is_some() => self.link.send(ToServer::Hit(self.aim_animal.unwrap())),
             // a pick-up aimed at by its own faces (ADR 0144): the dig button takes it at once (it has
             // no dig rule), the place button held `PICK_HOLD` with the hand empty picks it up
             "L" | "R" if on_thing(a, self.aim_thing.is_some(), self.aim_plant(), self.hand_empty()) => {
@@ -448,6 +450,8 @@ impl App {
                 self.link.send(ToServer::Use(self.bed_target().unwrap()));
             }
             "r" if self.drinking => self.drinking = false,
+            // a food in hand: the place button eats one (ADR 0210); the server says whether it was
+            "R" if self.food_in_hand() => self.link.send(ToServer::Eat),
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
                     // its own seq, as every message its own `Done` answers (a shared one is cleared by another's)
@@ -1354,6 +1358,29 @@ impl App {
         engine::items::tool(self.inv.get(self.slot).copied().flatten()).filter(|_| !self.creative)
     }
 
+    /// The nearest animal the look from `eye` along `fwd` meets within `herds::HIT_REACH`, before the aimed
+    /// block (ADR 0211): its body a sphere as the server's `Herds::body`.
+    fn animal_aimed(&self, eye: DVec3, fwd: DVec3) -> Option<u32> {
+        let now = std::time::Instant::now();
+        let block = self.aim.map_or(f64::MAX, |(hit, _)| (self.world.block_centre(hit) - eye).length() - 0.5);
+        // a pick-up in front of it keeps its click (the review of 0211)
+        let thing = self.aim_thing.map_or(f64::MAX, |(b, _)| (self.world.block_centre(b) - eye).length());
+        let reach = engine::herds::HIT_REACH.min(block).min(thing);
+        self.animals.iter().filter_map(|(id, (a, _, _))| {
+            let feet = self.animal_at(*id, now)?;
+            let s = self.kinds.get(a.kind as usize).cloned().flatten().map_or(1.0, |k| k.2 as f64);
+            let c = feet + engine::phys::up(&self.world, feet) * 0.45 * s;
+            let d = engine::herds::ray_hit(eye, fwd, c, 0.5 * s)?;
+            (d <= reach).then_some((d, *id))
+        }).min_by(|x, y| x.0.total_cmp(&y.0)).map(|x| x.1)
+    }
+
+    /// Whether the hand holds a food (an item whose row `feeds`, ADR 0210), in survival.
+    pub(crate) fn food_in_hand(&self) -> bool {
+        let st = self.inv.get(self.slot).copied().flatten();
+        !self.creative && !self.hammer && !self.bucket && st.and_then(|s| engine::items::ITEMS.get(s.item)).is_some_and(|d| d.feeds > 0)
+    }
+
     /// The hard rock aimed at while a knapping stone is in hand in survival, bare-handed (ADR 0110).
     pub(crate) fn knap_target(&self) -> Option<Block> {
         let st = self.inv.get(self.slot).copied().flatten()?;
@@ -1636,6 +1663,7 @@ impl App {
         }
         // a spectator aims at nothing: no outline, no look-at panel (it passes through blocks, ADR 0202)
         self.aim = if self.spectator { None } else { edit::aim(&self.world, p.pos, p.fwd, AIM_REACH) };
+        self.aim_animal = if self.spectator || self.creative && self.hammer { None } else { self.animal_aimed(p.pos, p.fwd) };
         let t = self.world.time;
         let still = &self.gpu.as_ref().unwrap().still;
         let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t, self.world.sky.year));

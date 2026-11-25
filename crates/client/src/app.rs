@@ -84,6 +84,8 @@ pub(crate) struct App {
     /// (drawn lerped between them over a tick, ADR 0083).
     pub(crate) kinds: Vec<Option<(String, String, f32)>>,
     pub(crate) animals: std::collections::BTreeMap<u32, (engine::net::Animal, DVec3, Instant)>,
+    /// The animal the dig button would hit (ADR 0211): nearer than the aimed block, within `herds::HIT_REACH`.
+    pub(crate) aim_animal: Option<u32>,
     pub(crate) streamer: Streamer,
     /// The bodies loading on approach (step 6b, `App::bodies_in`), each on a thread of its own, and those whose
     /// map this build cannot make (they stay points).
