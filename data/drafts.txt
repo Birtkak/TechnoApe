@@ -378,3 +378,43 @@ data/textures/diamond.png
 data/textures/ringwoodite rubble.png
 data/textures/bridgmanite rubble.png
 data/textures/diamond rubble.png
+data/models/ape gorilla brown.toml
+data/models/ape gorilla brown.png
+data/models/ape gorilla black.toml
+data/models/ape gorilla black.png
+data/models/ape gorilla ginger.toml
+data/models/ape gorilla ginger.png
+data/models/ape gorilla white.toml
+data/models/ape gorilla white.png
+data/models/ape gorilla blue.toml
+data/models/ape gorilla blue.png
+data/models/ape chimp brown.toml
+data/models/ape chimp brown.png
+data/models/ape chimp black.toml
+data/models/ape chimp black.png
+data/models/ape chimp ginger.toml
+data/models/ape chimp ginger.png
+data/models/ape chimp white.toml
+data/models/ape chimp white.png
+data/models/ape chimp blue.toml
+data/models/ape chimp blue.png
+data/models/ape orangutan brown.toml
+data/models/ape orangutan brown.png
+data/models/ape orangutan black.toml
+data/models/ape orangutan black.png
+data/models/ape orangutan ginger.toml
+data/models/ape orangutan ginger.png
+data/models/ape orangutan white.toml
+data/models/ape orangutan white.png
+data/models/ape orangutan blue.toml
+data/models/ape orangutan blue.png
+data/models/ape mandrill brown.toml
+data/models/ape mandrill brown.png
+data/models/ape mandrill black.toml
+data/models/ape mandrill black.png
+data/models/ape mandrill ginger.toml
+data/models/ape mandrill ginger.png
+data/models/ape mandrill white.toml
+data/models/ape mandrill white.png
+data/models/ape mandrill blue.toml
+data/models/ape mandrill blue.png

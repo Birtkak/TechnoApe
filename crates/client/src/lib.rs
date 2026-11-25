@@ -17,6 +17,7 @@ pub use hud::font_cells;
 mod menu;
 pub mod models;
 mod piles;
+mod looks;
 mod proxy;
 mod play;
 mod nav;
@@ -713,6 +714,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         ground_label: ((usize::MAX, 0, 0, 0), None, Instant::now()),
         spectator: false,
         person: 0,
+        seen: Default::default(),
+        strode: 0.0,
         sight_pitch: None,
         looks: Default::default(),
         fx,

@@ -13,8 +13,9 @@ use engine::world::{Block, World};
 use glam::{DMat3, DMat4, DVec3, Mat4, Vec3};
 use std::sync::mpsc::Receiver;
 
-/// The quads of every model at once, 16 bytes each (2 MB; doubled when the Steam Age's models passed 70 % of 1 MB).
-pub const MAX_MQUADS: usize = 1 << 17;
+/// The quads of every model at once, 16 bytes each (8 MB: 2 MB until the players' looks, ADR 0209, twenty painted
+/// figures).
+pub const MAX_MQUADS: usize = 1 << 19;
 /// One transform per part of every model drawn in a frame, 64 bytes each (4 MB). (shortcut: every instance is
 /// posed on the frame thread, about 0.3 us each; pose on rayon or the GPU when thousands run at once, ADR 0047)
 pub const MAX_PIECES: usize = 1 << 16;
@@ -246,6 +247,20 @@ pub struct Beast {
     pub scale: f32,
 }
 
+/// A player drawn as its figure (ADR 0208, ADR 0209): its look's model, the frame it is in and its feet from that
+/// frame's camera, its look's direction and its up, the clip it plays and the clip's time, and its place in the
+/// shadows' bodies plus one (0 none), so its own shadow's boxes do not shade it.
+pub struct Figure {
+    pub look: String,
+    pub body: usize,
+    pub at: DVec3,
+    pub fwd: DVec3,
+    pub up: DVec3,
+    pub clip: &'static str,
+    pub t: f64,
+    pub pass: u32,
+}
+
 /// The clip each `herds::Mind` plays, by its number: stand, graze, wander, flee, sleep.
 pub const ACT_CLIPS: [&str; 5] = ["a.idle", "a.eat", "a.walk", "a.run", "a.idle"];
 
@@ -253,6 +268,20 @@ pub const ACT_CLIPS: [&str; 5] = ["a.idle", "a.eat", "a.walk", "a.run", "a.idle"
 /// speed and `a.run` at its run speed. A row the models refuse is skipped (its animals stand unanimated).
 fn animal_clips(list: &mut [Loaded], text: &str) {
     for c in engine::creatures::rows(text).unwrap_or_default() {
+        // the players' figures (ADR 0209): the plain ape and every look, which keep its rig, walk by its row at the
+        // player's own speeds, so a figure's feet do not slide
+        for l in list.iter_mut().filter(|l| c.model == FIGURE && (l.name == FIGURE || l.name.starts_with(crate::looks::LOOKS))) {
+            if c.check(Some(&l.model), &|_| true).is_err() {
+                continue;
+            }
+            let (v, run) = (engine::phys::WALK as f32, (engine::phys::WALK * engine::phys::SPRINT) as f32);
+            let mut clips = vec![engine::creatures::idle(&l.model, &c), engine::creatures::walk(&l.model, &c, v), engine::creatures::walk(&l.model, &c, run)];
+            for (k, n) in clips.iter_mut().zip([crate::looks::IDLE, crate::looks::WALK, crate::looks::RUN]) {
+                k.name = n.into();
+            }
+            l.model.clips.retain(|k| !k.name.starts_with("p."));
+            l.model.clips.extend(clips);
+        }
         let Some(l) = list.iter_mut().find(|l| l.name == c.model) else { continue };
         if c.check(Some(&l.model), &|_| true).is_err() {
             continue;
@@ -301,8 +330,11 @@ pub struct Models {
     /// The body the bare arm and the held item pass through on their way to the sun and the lamps (ADR 0119):
     /// the camera's own player's place in the proxy list plus one, 0 none.
     pub hand: u32,
-    /// The camera's own player in third person (ADR 0208): its feet from the camera, its look and its up.
-    pub own: Option<(DVec3, DVec3, DVec3)>,
+    /// The players' figures this frame (ADR 0209), and this player's look: its bare arm's model.
+    pub figures: Vec<Figure>,
+    pub look: String,
+    /// The looks a player can have (ADR 0209), in the order of their names: the same list on every client.
+    pub looks: Vec<String>,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
     clip_state: State,
     /// Placed model cells asked into a state (`set_state`), and the states playing.
@@ -373,7 +405,9 @@ impl Models {
             spec_scale: None,
             spec_place: Mat4::IDENTITY,
             hand: 0,
-            own: None,
+            figures: Vec::new(),
+            look: FIGURE.into(),
+            looks: Vec::new(),
             states: Default::default(),
             runs: Default::default(),
             held: Vec::new(),
@@ -507,6 +541,8 @@ impl Models {
         if !quads.is_empty() {
             queue.write_buffer(buf, 0, bytemuck::cast_slice(&quads));
         }
+        self.looks = self.list.iter().map(|l| l.0.name.clone()).filter(|n| n.starts_with(crate::looks::LOOKS)).collect();
+        self.looks.sort();
         self.reloaded = true;
         self.gen += 1;
         eprintln!("[technoape] models: {} loaded, {} quads", self.list.len(), quads.len());
@@ -710,17 +746,21 @@ impl Models {
             let f = (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), up.extend(0.0), z.extend(0.0), (o - cam).extend(1.0))).as_mat4();
             inst[m].push((c, t + a.id as f64 * 0.37, f, 0, a.scale));
         }
-        // the camera's own player in third person (ADR 0208): the figure at rest on its feet, as tall as the player's
-        // box and its middle on the player's, as its shadow's boxes (proxy.rs), its +z along the look
-        // shortcut: at rest, empty-handed, the head level; give it clips and the held item when the ape has them
-        let mut own: Option<(usize, usize)> = None;
-        if let (Some((feet, fwd, up)), Some(m)) = (self.own, by_name(FIGURE)) {
-            let [lo, hi] = self.list[m].0.bounds;
-            let z = (fwd - up * fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
-            let f = DMat4::from_mat3(cams[cf].1) * DMat4::from_cols(up.cross(z).extend(0.0), up.extend(0.0), z.extend(0.0), feet.extend(1.0));
+        // the players' figures (ADR 0209; the camera's own in third person, ADR 0208): each its look's model on its
+        // feet, as tall as the player's box and its middle on the player's, as its shadow's boxes (proxy.rs), its +z
+        // along the look
+        // shortcut: empty-handed, the head level; hang the held item on the arm and pitch the head when wanted
+        let mut passes = std::collections::BTreeMap::new();
+        for g in &self.figures {
+            let Some(m) = by_name(&g.look).or_else(|| by_name(FIGURE)) else { continue };
+            let l = &self.list[m].0;
+            let [lo, hi] = l.bounds;
+            let z = (g.fwd - g.up * g.fwd.dot(g.up)).normalize_or(g.up.any_orthonormal_vector());
+            let turn = cams.get(g.body).map_or(DMat3::IDENTITY, |c| c.1);
+            let f = DMat4::from_mat3(turn) * DMat4::from_cols(g.up.cross(z).extend(0.0), g.up.extend(0.0), z.extend(0.0), g.at.extend(1.0));
             let fit = Mat4::from_scale(Vec3::splat(engine::phys::HEIGHT as f32 / (hi.y - lo.y).max(1e-3))) * Mat4::from_translation(-Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5));
-            own = Some((m, inst[m].len()));
-            inst[m].push((None, t, f.as_mat4() * fit, cf as u32, 1.0));
+            passes.insert((m, inst[m].len()), g.pass);
+            inst[m].push((l.model.clips.iter().position(|k| k.name == g.clip), g.t, f.as_mat4() * fit, g.body as u32, 1.0));
         }
         // the effects' particles with a model look: at `size` times the model, resting on its first part's foot
         for (name, p) in fx.models() {
@@ -754,7 +794,7 @@ impl Models {
                     }
                 }
                 None => {
-                    let m = drawn(&self.list, FIGURE);
+                    let m = drawn(&self.list, &self.look).or_else(|| drawn(&self.list, FIGURE));
                     if let Some((m, a)) = m.and_then(|m| Some((m, self.list[m].0.model.parts.iter().position(|p| p.name == ARM)?))) {
                         // the arm's voxels to the eye's frame: its length (+y, hand to shoulder) along `way`, its
                         // width level across it; then the model's metres to the arm's voxels at rest
@@ -831,8 +871,8 @@ impl Models {
                 let first = self.pieces.len() as u32;
                 for (k, (_, _, x, body, s)) in list.iter().enumerate() {
                     let r = (*x * sc(*s) * poses[k][pi]).transpose();
-                    // (the own figure too: its shadow's boxes would shade it, ADR 0208)
-                    let hand = if held == Some((m, k)) || own == Some((m, k)) { self.hand } else { 0 };
+                    // (a figure too: its own shadow's boxes would shade it, ADR 0208)
+                    let hand = if held == Some((m, k)) { self.hand } else { passes.get(&(m, k)).copied().unwrap_or(0) };
                     self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [hand, 0] });
                 }
                 if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(owner(pi))) {
