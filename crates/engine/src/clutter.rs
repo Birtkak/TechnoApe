@@ -282,7 +282,13 @@ fn roll(seed: u64, face: u8, i: i32, j: i32) -> u64 {
 /// season (`density`: the Clutter and the Vegetation settings'). A bound on `pick` and `plant` that costs two
 /// hashes, so the mesher asks the ground and the season only of the columns that pass.
 pub fn may(seed: u64, face: u8, i: i32, j: i32, biome: u8, density: [f32; 2]) -> bool {
-    let Some(b) = crate::biomes::ROWS.biomes.get(biome as usize) else { return false };
+    may_of(may_shares(biome, density), seed, face, i, j)
+}
+
+/// `may`'s two shares of a biome (things lying, plants): the same for every column of the biome, so the mesher
+/// sums them once a run of columns.
+fn may_shares(biome: u8, density: [f32; 2]) -> Option<(f32, f32)> {
+    let b = crate::biomes::ROWS.biomes.get(biome as usize)?;
     let (mut models, mut plants) = (0.0, 0.0);
     for c in &b.clutter {
         match CLUTTER[c.0].kind {
@@ -291,6 +297,12 @@ pub fn may(seed: u64, face: u8, i: i32, j: i32, biome: u8, density: [f32; 2]) ->
             Kind::Plant => plants += c.1 / 100.0 * density[1],
         }
     }
+    Some((models, plants))
+}
+
+/// `may` from the biome's shares (`may_shares`).
+fn may_of(shares: Option<(f32, f32)>, seed: u64, face: u8, i: i32, j: i32) -> bool {
+    let Some((models, plants)) = shares else { return false };
     let h = roll(seed, face, i, j);
     unit(h) < models || plants > 0.0 && unit(mix(h ^ PLANT_ROLL)) < plants
 }
@@ -353,16 +365,25 @@ pub const WADE: f64 = 0.8;
 
 /// `ground`, also under fresh water less than `depth` deep (never under the sea).
 pub fn ground_under(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32, depth: f64) -> Option<(i32, u16, u8)> {
+    ground_wet(body, tile, face, i, j, depth).map(|(z, top, biome, _)| (z, top, biome))
+}
+
+/// `ground_under`, and whether fresh water stands over that ground (one look at the water for both).
+fn ground_wet(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32, depth: f64) -> Option<(i32, u16, u8, bool)> {
     let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
     let k = (i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P;
     if body.baked_seed().is_none() {
         return None;
     }
     let z = body.first_air(tile.h[k]);
-    if body.sea.is_some_and(|s| z as f64 <= s) || body.water_at(face, i, j).is_some_and(|w| w.0 - z as f64 >= depth) {
+    if body.sea.is_some_and(|s| z as f64 <= s) {
         return None;
     }
-    Some((z, tile.g[k][0], tile.biome[k]))
+    let w = body.water_at(face, i, j);
+    if w.is_some_and(|w| w.0 - z as f64 >= depth) {
+        return None;
+    }
+    Some((z, tile.g[k][0], tile.biome[k], w.is_some_and(|w| z as f64 <= w.0)))
 }
 
 /// The parts of the year a look names, a bit each of `part`'s eighths: "summer" both halves, "early summer" or
@@ -431,7 +452,7 @@ pub fn thing_at(world: &World, b: Block, t: f64, density: f32, built: bool, lies
     if let Some(p) = pick_in(&c, b, p8 / 2) {
         return lies(b, &p).then_some(p);
     }
-    if (0..4).any(|s| pick_in(&c, b, s).is_some()) {
+    if (0..4).any(|s| s != p8 / 2 && pick_in(&c, b, s).is_some()) {
         return None;
     }
     let (_, seed, tile, top, biome, wet) = &c;
@@ -797,6 +818,10 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
         edited[c as usize % (P * P)] = true;
     }
     let c0 = key.pos * CS - 1;
+    // the last biome's shares (`may_shares`), and per column whether it has ground (0 not asked, 1 yes, 2 no):
+    // a plant's neighbours ask it again
+    let mut shares: Option<(u8, Option<(f32, f32)>)> = None;
+    let has: [std::cell::Cell<u8>; P * P] = std::array::from_fn(|_| std::cell::Cell::new(0));
     for v in 1..=CS as usize {
         for u in 1..=CS as usize {
             if edited[u + v * P] {
@@ -804,12 +829,17 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
             }
             let (i, j) = (c0.x + u as i32, c0.y + v as i32);
             // the roll first: one hash turns most columns away before the ground's lookups
-            if !may(seed, key.face, i, j, tile.biome[u + v * P], density) && (!ores || sample(body, seed, key.face, i, j).is_none()) {
+            let bi = tile.biome[u + v * P];
+            if shares.is_none_or(|s| s.0 != bi) {
+                shares = Some((bi, may_shares(bi, density)));
+            }
+            if !may_of(shares.unwrap().1, seed, key.face, i, j) && (!ores || sample(body, seed, key.face, i, j).is_none()) {
                 continue;
             }
             // shallow fresh water too: a wading plant (reeds) stands in it, nothing else does
-            let Some((z, top, biome)) = ground_under(body, &tile, key.face, i, j, WADE) else { continue };
-            let wet = body.water_at(key.face, i, j).is_some_and(|w| z as f64 <= w.0);
+            let ground = ground_wet(body, &tile, key.face, i, j, WADE);
+            has[u + v * P].set(if ground.is_some() { 1 } else { 2 });
+            let Some((z, top, biome, wet)) = ground else { continue };
             let zl = z - c0.z;
             // the chunk that holds the ground cell lays it: that chunk is never all air
             if !(2..=CS + 1).contains(&zl) || cells[pidx(u, v, zl as usize)] != 0 || cells[pidx(u, v, zl as usize - 1)] != top {
@@ -832,7 +862,16 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
                 // a neighbour counts if it grows this row and has ground (none too deep: the bed's open-water edge
                 // keeps the light painting). shortcut: the neighbours are asked with this column's biome and ground,
                 // and past the chunk's tile their ground is not looked up; fine for a look, revisit if it shows
-                let has_ground = |ni: i32, nj: i32| ni.div_euclid(CS) != key.pos.x || nj.div_euclid(CS) != key.pos.y || ground_under(body, &tile, key.face, ni, nj, WADE).is_some();
+                let has_ground = |ni: i32, nj: i32| {
+                    if ni.div_euclid(CS) != key.pos.x || nj.div_euclid(CS) != key.pos.y {
+                        return true;
+                    }
+                    let h = &has[(ni - c0.x) as usize + (nj - c0.y) as usize * P];
+                    if h.get() == 0 {
+                        h.set(if ground_under(body, &tile, key.face, ni, nj, WADE).is_some() { 1 } else { 2 });
+                    }
+                    h.get() == 1
+                };
                 let inside = || [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(di, dj)| has_ground(i + di, j + dj) && plant(seed, key.face, i + di, j + dj, biome, top, p8 / 2, density[1], &tile.trees).is_some_and(|o| o.row == t.row));
                 let alt = match still.back[t.row] {
                     Some(b) if row.kind == Kind::Plant && inside() => b,

@@ -126,8 +126,8 @@ ground and from 350 m up at two places (`out/hills/`), not yet in play.
 Alternatives not taken: noise laid on the eroded land (rivers would run uphill and every dip would be a pond); a
 lower `mountain_m` (the peaks are the developer's call of 2026-11-11). Open: the strength is taste (the four
 numbers above are the knobs); the steepest tenth of the land is now steeper than 136 % between 8 m cells on the
-8 km planet (was 42 %), which is climbing, not walking; the map's lakes count 39,543 against 6,721 on the 4 km
-planet and were not looked into; a walker following the longest river of the 1536 test planet is stopped a
+8 km planet (was 42 %), which is climbing, not walking; the 4 km planet has 113 lakes where it had 30 (their cells 39,543 against
+6,721, about 2.5 % of the land): hill country holds water in more hollows; a walker following the longest river of the 1536 test planet is stopped a
 third of the way down, where the bed is two blocks wide and a tree stands at its edge (that test runs on the
 land before the hills); Mars's highlands are as flat as they were (35 m, craters only); Luna and the icy moon
 are as they were.

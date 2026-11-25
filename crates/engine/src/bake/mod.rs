@@ -359,7 +359,9 @@ impl Map {
         self.climate.as_ref()?;
         let m = self.m as usize;
         let (i, j) = ((x.floor().max(0.0) as usize).min(m - 1), (y.floor().max(0.0) as usize).min(m - 1));
-        let theta = self.climate_at(face, i as f64 + 0.5, j as f64 + 0.5)?.0;
+        // (the temperature alone: `climate_at` smooths the swing and the rain too, and this is asked a column)
+        let (c, g) = (self.climate.as_ref()?, self.air.as_ref()?);
+        let theta = c.theta_at(g, grid::Grid::bare(self.m as usize, c.r).dir_at(face, i as f64 + 0.5, j as f64 + 0.5));
         Some(theta - air::Params::default().cool(self.h[(face * m + j) * m + i]))
     }
     /// The slope (rise over run) of cell (f, i, j), from its four neighbours (across the seams too).
@@ -409,10 +411,12 @@ impl Map {
         let w = |t: f32| [((-0.5 * t + 1.0) * t - 0.5) * t, (1.5 * t - 2.5) * t * t + 1.0, ((-1.5 * t + 2.0) * t + 0.5) * t, (0.5 * t - 0.5) * t * t];
         let (wx, wy) = (w(tx), w(ty));
         let (mut s, mut r) = (0.0, 0.0);
+        // inside the face no cell of the 16 folds over a seam (the same cells in the same order)
+        let inside = i0 >= 1 && j0 >= 1 && i0 + 2 < m && j0 + 2 < m;
         for (b, wb) in wy.iter().enumerate() {
             let (mut row, mut rr) = (0.0, 0.0);
             for (a, wa) in wx.iter().enumerate() {
-                let (f, i, j) = fold(face, i0 - 1 + a as i32, j0 - 1 + b as i32, m);
+                let (f, i, j) = if inside { (face, i0 - 1 + a as i32, j0 - 1 + b as i32) } else { fold(face, i0 - 1 + a as i32, j0 - 1 + b as i32, m) };
                 let c = (f * m as usize + j as usize) * m as usize + i as usize;
                 row += wa * h[c];
                 if R {

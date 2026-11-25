@@ -767,7 +767,8 @@ fn masses_ref(g: &Grid, ocean: &[bool], coast: &[u32]) -> Vec<Vec<u32>> {
 }
 
 pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
-    drain_by(g, h, sea, h.par_iter().any(|v| v.abs() >= 1024.0))
+    // (a height that is not a number goes the slow way too)
+    drain_by(g, h, sea, h.par_iter().any(|v| !(v.abs() < 1024.0)))
 }
 
 /// `drain`, by the slow flood if `slow` (its reference).

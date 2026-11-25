@@ -447,6 +447,8 @@ impl Server {
             let taken: Vec<Block> = self.clients.iter().filter(|c| !c.spectator)
                 .flat_map(|c| [0.2, 1.0, phys::HEIGHT - 0.1].map(|h| world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * h)))
                 .collect();
+            // (asked of every live column: a set, not 150 compares each)
+            let taken: engine::world::FxMap<Block, ()> = taken.into_iter().map(|b| (b, ())).collect();
             // the air water's phases go by: the live air grid's on the planet; the heat step runs by the world's clock
             // (a time warp of n runs n seconds of it a second)
             let force = self.force;
@@ -457,7 +459,7 @@ impl Server {
                 let d = b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
                 Some(w.here(d, b0.layer_r(z) - b0.sea.map_or(b0.radius, |s| b0.layer_r(s))).temp as f64)
             };
-            for (b, was, m) in world.cool_fluids_in(self.warp as f64, |b| taken.contains(&b), Some(&live)) {
+            for (b, was, m) in world.cool_fluids_in(self.warp as f64, |b| taken.contains_key(&b), Some(&live)) {
                 changed.push((b, m));
                 self.events.push(Event::Edit { at: b, was, now: m, by: None });
             }
@@ -491,7 +493,7 @@ impl Server {
                 .filter_map(|&c| {
                     let z = world.snow.cols.get(&c)?.floor;
                     let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), z) };
-                    (z != engine::snow::NOWHERE && world.block(b) == AIR && !taken.contains(&b)).then_some(((c, z), world.edit(b).is_none()))
+                    (z != engine::snow::NOWHERE && world.block(b) == AIR && !taken.contains_key(&b)).then_some(((c, z), world.edit(b).is_none()))
                 })
                 .collect();
             let sea = b0.sea.map_or(b0.radius, |s| b0.layer_r(s));

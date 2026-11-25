@@ -942,9 +942,10 @@ impl Streamer {
                     let mut gen = generate_raw(body, k, &edits);
                     let raw = match &mut gen {
                         Gen::Cells(c) => {
-                            let raw = c.clone();
+                            // (78 KB a chunk: only while the slopes are on, they alone read it)
+                            let raw = crate::fall::SLOPES_AND_SLIDES.then(|| c.clone());
                             skirt(c);
-                            Some(raw)
+                            raw
                         }
                         _ => None,
                     };

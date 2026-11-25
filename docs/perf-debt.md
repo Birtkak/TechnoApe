@@ -74,3 +74,57 @@ under it, the walk at detail 8 in flight (4.1 ms a frame).
 | The conformal grid in the game and on the server (ADR 0203), measured after its merge | one play build, `gen=12` against the default 13, `quick=1`, the PC to itself (2026-11-25); `grid_cost`, `tile_cost` (engine, ignored) | server: the 50 player run's tick 2.99 and 3.56 -> 4.15 and 5.10 ms p50 (the physics: `Body::locate` is the warp's inverse, 38 -> 147 ns, since 138 with its own table as the first guess; `blocked` 1.21 -> 1.62 us: a `grid_at` and four `dir` for the box's width in columns; a step 5.2 -> 6.5 us, since 6.15); jobs: a height tile 1,316 -> 1,604 us, since 1,555 (some twenty map reads a column through `warp_col`) | G-buffer, by what is on screen: stand 1.32 -> 1.39 ms (393k quads), sim 2.60 -> 3.05 (854k), edit 4.09 -> 5.11 (1,673k): the vertex shader's warp, a table read and its mixes a vertex | edit frame p50 6.75 -> 7.72, p99 8.33 -> 9.17 (over 8.3) | the box's width from the warp's own Jacobian (one `at`) in place of four `dir`; `locate` once a step where the same point is asked again; a tile's columns' warp once, shared by its readers; in the shader the warped direction per chunk corner and interpolated, or baked into the mesh's vertices |
 | The server's tick with 50 players, by merge (history rebuilt 2026-11-25) | `run=sim quick=1`, play builds of five commits, one run each, the PC to itself | tick p99: 4.15 ms at the speed baseline's commit (cc329c54), 4.49 before snow (b195312d), 9.48 with snow in eighths (d2e7c104), 11.98 with ground water (0a4628a9), 14.47 with the conformal grid and spectators (0689941d); since 6.1 to 7.0 with the snow's second passed over where it cannot snow. p50 2.6 -> 4.2 over the same builds, 1.3 of it the grid's | none | none (a tick has 50 ms) | what is left over the baseline: ground water's `seep` each second (not measured alone), the grid's look-ups (row above); in a cold place the snow's second is back in full: step a twentieth of the live columns a tick, or the players' squares in turn |
 | Hot ground and rain over lava (draft "Hot ground", plants-and-creatures.md; bug reports 2026-11-24_18-45-16 and 18-46-31) | not measured (bug-fix round: no speed runs; the tests only) | server tick, worlds of generation 14 on: each awake animal asks `Body::hot_ground` once a tick in `think` (a loop over the body's craters, a few of them, one length each), a walking one thrice more and one `lava_at` (a fluid look-up) every 4th tick in its look-ahead, and every awake animal one `lava_at` a second. A world before generation 14 pays one comparison an animal. Frame thread, in rain or snow: each drop made asks `World::boils_rain` (a loop over the craters and one fluid look-up, a second look-up within a crater's radius), at most some 30 drops a frame; the eye asks `lava_at` once a frame | none (the lava fog is one branch in the composite) | not measured | a body's live craters kept apart, with a bound round all of them, so a place far from any is one comparison; the drops' look-up shared with the one `Fall::drops` already makes for water |
+
+## Larger jobs, where to look
+
+Work too big for a pass of small fixes, noted so a later session knows where the time is and what was already
+tried. Newest first; strike a line out when it is done.
+
+- **The bake's erosion, what is left (2026-11-25).** `bake/land.rs::erode` calls `drain` every step (320 coarse,
+  48 fine). After the flood that queues only pouring cells and the union-find components (same result to the
+  bit), the 4 km planet's fine steps spend, of about 15 s: flood 5.9, basins 2.1, the copies/coast/masses 1.6,
+  oceans 1.1, freeing and re-making the `Drainage` every step 1.1, the solve and diffusion 1.4.
+  - The flood runs one thread a land mass and the big continent is most of the land. Making the walk from the
+    coast parallel gains little: lakes on the rivers stop it at about a quarter of the cells (measured), the
+    rest is settled behind the priority queue. A real gain needs a different method (Cordonnier et al. 2019's
+    linear depression routing, or Barnes 2016's tiled parallel flood); either changes bits in the last place
+    (the drained areas' sums), so it needs a new map version.
+  - `basins` (the grouping by the root cell) is serial a mass: roots by pointer jumping and one parallel sort by
+    (root's place, own place) would give the same `cells` and `start`.
+  - Keep one `Drainage` and its scratch across the steps instead of allocating about ten arrays of the grid's
+    size each step (page faults; the "other" second).
+  - Skipping `drain` on some steps changes the land: a taste call and a map version.
+- **The bake's climate (2026-11-25).** 155 s of the 8 km planet's 340 s after the coarse year (ADR 0204);
+  `bake/life.rs` and the air model. Not profiled since the coarse grid.
+- **The ground water's solve on hill country (2026-11-25).** The 1536 test planet, seed 5: 8,675 sweeps and
+  200 s against 6,875 and 118 s on the land before the hills; the 512 planet 3,625 sweeps against 1,925
+  (`world/ground*.rs`, `baked_tests.rs`'s sweep bound). Steeper land converges slower: a multigrid or a better
+  first guess (the coarse solve upsampled) is the idea not tried.
+- **The streamer's walk at detail 5 and up** and **the conformal grid's cost on the server**: their rows are in
+  the table above; neither was started in the 2026-11-25 batch.
+- **Not started from the 2026-11-25 list:** the tide's re-mesh on a worker, the snow step's cost in cold places,
+  small trees near the cube's corners (a look, not speed), the orbit run.
+- **Found by reading on 2026-11-25, not done** (each bigger than a small fix, or it changes behaviour):
+  - `Herds::tick` (`herds.rs`, about line 230) walks every site ever met, every tick; sites are kept for good (up
+    to some 55,000), so it grows with play time. Wants a list of the awake sites.
+  - Every fluid helper builds a `Solid` (`World::ground`, `world/solid.rs::Solid::at`), which works the tide out
+    (the moon's and the sun's poses) each time: three or four times a player's step. A tide kept a second in
+    `World` needs interior mutability or a changed API.
+  - The snow second (the tick's known p99): `server/tick.rs`'s `here` and `live` both ask `Weather::here` (a grid
+    `locate` and three `upsample_at`) for the same column and height; a memo a second would halve it.
+  - `liquid.rs::open_ends`'s second pass (`start == false`) still fills `grow`, `feed` and `rainfed`, which it
+    drops; guarding them needs a careful read of what `river_of` memoises.
+  - `clutter::aim_thing` asks `World::block_at` (a warped `locate`) every 5 cm along the ray, about 100 a frame,
+    and `clutter::column` builds a chunk's whole edit list (`edits_for`) to test one column: both on the frame
+    thread.
+  - The journal's look ray (`server/tick.rs` about line 740, `edit::aim`): up to 160 `block_at` a player every
+    10 ticks. Skipping it when the journal has no `look:` entry left would keep the hash; spreading players over
+    ticks would not.
+  - Whether the dedicated server ever builds level-0 height tiles was not checked: if it does not, `col_height`
+    works a height out from scratch on every physics lookup, which would matter more than all the above.
+  - `build_tile` (`world/heights.rs`) still reads the grid's warp two to four times a column (`dir`, `height_at`,
+    `flow`, the mantle): a `height_at` that takes the warped point. And an `exp` a plant block for the tile's
+    top: the last block alone would do if `exp` is taken as monotonic (check with a tile hash).
+  - Small and left: `height_at`'s `log2` of a constant, `tide_layers`' `exp` of a constant, `Body::rock`'s
+    `layer_r(1.0)` (all per-body constants); the streamer's `order` list allocated a frame (`stream.rs::dispatch`);
+    `Solid::open_air` smooths the rain it never reads (as `Map::temp` did).

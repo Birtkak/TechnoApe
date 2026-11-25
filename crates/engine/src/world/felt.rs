@@ -136,11 +136,13 @@ impl World {
     /// shortcut: a wall blocks all radiant heat and passes none by conduction, until blocks' rows carry conductivity,
     /// heat capacity and emissivity.
     fn ray(&self, g: &Solid<'_>, rows: &crate::fluids::Fluids, p: DVec3, dir: DVec3, probes: &mut u64) -> Option<(f64, f64)> {
-        let mut cell = self.block_at(p);
+        // where the ray is now, in the grid: placed once a step (placing a point is the dear part)
+        let mut here = self.grid_at(p);
+        let mut cell = self.block_of(here);
         let (mut t, mut looked, mut steps) = (0.0, 0, 0);
         while t < RAY_REACH && looked < RAY_CELLS && steps < 4 * RAY_CELLS {
             steps += 1;
-            let (_, f0, g0) = self.grid_at(p + dir * t);
+            let (_, f0, g0) = here;
             let (_, f1, g1) = self.grid_at(p + dir * (t + 0.01));
             let wall = if f0 == f1 {
                 let d = (g1 - g0) / 0.01;
@@ -150,7 +152,8 @@ impl World {
                 0.0
             };
             t += wall + 1e-3;
-            let next = self.block_at(p + dir * t);
+            here = self.grid_at(p + dir * t);
+            let next = self.block_of(here);
             if next == cell {
                 continue;
             }

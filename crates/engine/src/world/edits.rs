@@ -4,7 +4,10 @@ use super::*;
 impl World {
     /// The block of the nearest body that holds world point p.
     pub fn block_at(&self, p: DVec3) -> Block {
-        let (bi, face, g) = self.grid_at(p);
+        self.block_of(self.grid_at(p))
+    }
+    /// The block that holds a point `grid_at` placed.
+    pub fn block_of(&self, (bi, face, g): (usize, usize, DVec3)) -> Block {
         let n = self.bodies[bi].n;
         let col = |c: f64| (c.floor() as i32).clamp(0, n - 1);
         Block { body: bi as u8, face: face as u8, pos: IVec3::new(col(g.x), col(g.y), g.z.floor() as i32) }
@@ -65,7 +68,8 @@ impl World {
     /// The generated material of block b under a surface at radius `height` (its `column_height`).
     pub fn generated_under(&self, b: Block, height: f64) -> u16 {
         let body = &self.bodies[b.body as usize];
-        let depth = height - body.layer_r(b.pos.z as f64 + 0.5);
+        let r = body.layer_r(b.pos.z as f64 + 0.5);
+        let depth = height - r;
         if depth < 0.0 || body.gas {
             // over the ground: a plant's block, or air (a crown can hang over lower ground: `PLANT_TOP`)
             if body.baked.is_none() || -depth > PLANT_TOP {
@@ -88,7 +92,7 @@ impl World {
             if let Some((k, g)) = body.halo_at(b.face, b.pos.x, b.pos.y, b.pos.z) {
                 return body.halo_block(k, g);
             }
-            let r = body.layer_r(b.pos.z as f64 + 0.5) as f32;
+            let r = r as f32;
             return body.rock(body.col_rock(b.face, b.pos.x, b.pos.y), r, ground[2]);
         }
         material(depth, &ground)
@@ -131,22 +135,23 @@ impl World {
     }
     /// The radius of the water surface over world point p, if p is under water.
     pub fn water_surface(&self, p: DVec3) -> Option<f64> {
-        let (bi, _, g) = self.grid_at(p);
-        let b = self.block_at(p);
+        let at = self.grid_at(p);
+        let ((bi, _, g), b) = (at, self.block_of(at));
         let l = self.water.surface_at(&self.ground(), World::col(b), g.z)?;
         Some(self.bodies[bi].layer_r(l))
     }
     /// Whether world point p is in lava (`data/fluids.toml`'s lava): stored, or as generation gives it (a volcano's).
     pub fn lava_at(&self, p: DVec3) -> bool {
-        let (_, _, g) = self.grid_at(p);
-        let kind = self.water.kind_at(&self.ground(), World::col(self.block_at(p)), g.z);
+        let at = self.grid_at(p);
+        let kind = self.water.kind_at(&self.ground(), World::col(self.block_of(at)), at.2.z);
         kind.is_some() && kind == crate::fluids::FLUIDS.now().kind("lava")
     }
     /// The radius of the surface of the fluid over world point p and its kind, if p is in one (`water_surface` is
     /// water's alone): what holds a body up (`phys::step`).
     pub fn fluid_surface(&self, p: DVec3) -> Option<(f64, u8)> {
-        let (bi, _, g) = self.grid_at(p);
-        let (l, kind) = self.water.fluid_surface_at(&self.ground(), World::col(self.block_at(p)), g.z)?;
+        let at = self.grid_at(p);
+        let (bi, _, g) = at;
+        let (l, kind) = self.water.fluid_surface_at(&self.ground(), World::col(self.block_of(at)), g.z)?;
         Some((self.bodies[bi].layer_r(l), kind))
     }
     /// `dt` seconds of stored fluids' heat (`Liquids::cool`; the server's, once a second): every cell that froze

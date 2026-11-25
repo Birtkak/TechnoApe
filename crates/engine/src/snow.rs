@@ -19,6 +19,9 @@ use crate::liquid::{Col, Ground, OPEN, U};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The snow block (a live reload never moves a block's id, ADR 0134).
+pub static SNOW: std::sync::LazyLock<u16> = std::sync::LazyLock::new(|| BLOCKS.id("snow"));
+
 /// Fresh snow's density, kg/m^3 (new snow 50 to 200, settled 200 to 300): an eighth of a block of it is 15.625 kg of
 /// water on its square metre, exactly `EIGHTH` units.
 pub const DENSITY: f64 = 125.0;
@@ -172,7 +175,7 @@ impl Snow {
     /// How deep the snow one sinks into in cell z of column c is, blocks (0: none, or a full block one stands on).
     pub fn sunk(&self, c: Col, z: i32) -> f64 {
         match self.seen.get(&c) {
-            Some(s) if s.z == z && s.block == BLOCKS.id("snow") => s.eighths as f64 / 8.0,
+            Some(s) if s.z == z && s.block == *SNOW => s.eighths as f64 / 8.0,
             _ => 0.0,
         }
     }
@@ -188,7 +191,7 @@ impl Snow {
         }
     }
     fn reshow(&mut self, c: Col) {
-        let snow = BLOCKS.id("snow");
+        let snow = *SNOW;
         let s = self
             .cols
             .get(&c)

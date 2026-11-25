@@ -372,9 +372,11 @@ impl Body {
         if self.gen < 4 && b.map.version == crate::bake::luna::VERSION {
             return Rock::NONE;
         }
-        let (x, y) = self.jittered(b, i, j, d);
+        self.rock_from(b, face, i, j, d, self.map_point(b, i, j, d))
+    }
+    /// `rock_at` from the column's `map_point` (a body that has rock).
+    pub(super) fn rock_from(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, (_, _, mx, my): (f64, f64, f64, f64)) -> Rock {
         let s = b.map.m as f64 / self.n as f64;
-        let (mx, my) = self.map_xy(s, x, y);
         let Some(p) = b.map.rock(face, mx, my) else { return Rock::NONE };
         let [amp, width] = ROCKS.provinces[p as usize].fold;
         let q = d * (self.radius / width as f64);
@@ -421,9 +423,17 @@ impl Body {
     /// `ground_at` and the biome it is of (0 on a planet with no map).
     pub(crate) fn ground_biome_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> ([u16; 3], u8) {
         let Some(b) = &self.baked else { return (self.ground, 0) };
+        self.ground_biome_from(b, face, i, j, d, h, self.map_point(b, i, j, d))
+    }
+    /// The jittered point of face point (i, j) in columns and in the map's cells: what the ground's and the
+    /// rock's lookups both start from (two noise reads and a look at the grid's warp).
+    pub(super) fn map_point(&self, b: &Baked, i: f64, j: f64, d: DVec3) -> (f64, f64, f64, f64) {
         let (x, y) = self.jittered(b, i, j, d);
-        let s = b.map.m as f64 / self.n as f64;
-        let (mx, my) = self.map_xy(s, x, y);
+        let (mx, my) = self.map_xy(b.map.m as f64 / self.n as f64, x, y);
+        (x, y, mx, my)
+    }
+    /// `ground_biome_at` from the column's `map_point`.
+    pub(super) fn ground_biome_from(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, h: f64, (x, y, mx, my): (f64, f64, f64, f64)) -> ([u16; 3], u8) {
         let biome = b.map.biome(face, mx, my);
         // a live volcano's upper cone is bare basalt (`volcano::BARE`)
         if !b.craters.is_empty() && self.bare_cone(face as u8, i.floor() as i32, j.floor() as i32) {
@@ -787,7 +797,8 @@ impl Body {
         if z < 0 || self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)).is_empty() || ground < self.layer_r(z as f64 + 0.5) {
             return None;
         }
-        let k = self.col_ores(face, i, j, ground).into_iter().find(|&(lo, hi, _)| (lo..hi).contains(&z))?.2;
+        // (`col_ores`'s first match, without its list)
+        let k = self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)).iter().copied().find(|&k| self.ores[k as usize].span(self, i, j, ground).is_some_and(|(lo, hi)| (lo..hi).contains(&z)))?;
         (!self.col_caves(face, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&z))).then_some(k)
     }
     /// The halo of altered rock that layer z of column (face, i, j) is (ADR 0095), as (body, grade): the

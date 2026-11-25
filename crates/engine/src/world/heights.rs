@@ -342,9 +342,11 @@ impl Body {
                 t.min = t.min.min(hv as f32);
                 t.max = t.max.max(hv as f32);
                 t.h[u + v * P] = hv;
-                if self.baked.is_some() {
-                    (t.g[u + v * P], t.biome[u + v * P]) = self.ground_biome_at(f, pi, pj, d, hv);
-                    t.rock[u + v * P] = self.rock_at(f, pi, pj, d);
+                if let Some(b) = &self.baked {
+                    // one jittered point for the ground and the rock (each looked it up for itself)
+                    let at = self.map_point(b, pi, pj, d);
+                    (t.g[u + v * P], t.biome[u + v * P]) = self.ground_biome_from(b, f, pi, pj, d, hv, at);
+                    t.rock[u + v * P] = if self.gen < 4 && b.map.version == crate::bake::luna::VERSION { Rock::NONE } else { self.rock_from(b, f, pi, pj, d, at) };
                     if level == 0 {
                         for (z, m) in self.plants_with(f, fi, fj, &mut spots) {
                             t.max = t.max.max(self.layer_r(z as f64 + 1.0) as f32);
