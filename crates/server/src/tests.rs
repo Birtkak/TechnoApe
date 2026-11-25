@@ -5189,3 +5189,20 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     assert_eq!((s.world.block(green_b), s.world.edit(green_b), plant(&s, green_b)), (AIR, None, grows), "melted back, the same plant there");
     assert_eq!((s.world.block(lit_b), s.world.snow.cols[&lit].units), (torch, 0), "the torch still there, its snow melted");
 }
+
+/// A player sent to the spawn (a new one, a respawn with no home, a body let go) stands on what is there now:
+/// the soak of 2026-11-25 put a bot that died back at the spawn inside a leaf block another bot had placed there.
+#[test]
+fn the_spawn_is_never_inside_what_was_built_on_it() {
+    let (mut s, _links) = server_with(1);
+    let at = s.spawn();
+    assert!(!phys::blocked(&s.world, at), "the spawn as made is free");
+    let up = phys::up(&s.world, at);
+    for k in 0..2 {
+        let b = s.world.block_at(at + up * (0.5 + k as f64));
+        s.world.set_block(b, 3);
+    }
+    let now = s.spawn();
+    assert!(!phys::blocked(&s.world, now), "standing in what was built on the spawn");
+    assert!((now - at).dot(up) > 1.9 && (now - at).reject_from(up).length() < 0.5, "on top of it: {:?} from {:?}", now, at);
+}
