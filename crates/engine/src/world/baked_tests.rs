@@ -2224,3 +2224,15 @@ fn tile_cost() {
         println!("{{\"tile_cost\":{{\"generation\":{gen},\"warp\":{},\"us_a_tile\":{best:.1}}}}}", b.warp);
     }
 }
+
+/// The 4 km planet's bake, stage by stage (and the 8 km one's with BAKE_N=12288)
+/// (BAKE_LAPS=1 cargo test -p engine --profile play --lib bake_laps -- --ignored --nocapture).
+#[test]
+#[ignore]
+fn bake_laps() {
+    let n: i32 = std::env::var("BAKE_N").ok().and_then(|v| v.parse().ok()).unwrap_or(6144);
+    crate::bake::lap("start");
+    let t = std::time::Instant::now();
+    let m = Map::bake(1337, n);
+    eprintln!("[bake] planet {n}: {:.1} s in all, {} map cells a face edge, {} bytes", t.elapsed().as_secs_f64(), m.m, m.to_bytes().len());
+}

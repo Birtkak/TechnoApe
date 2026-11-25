@@ -700,6 +700,16 @@ pub fn report(stage: &'static str, f: f32) {
 
 /// The bake's stage `name` has ended (its `lap`): the next one is under way.
 pub(crate) fn lap(name: &str) {
+    // BAKE_LAPS=1: each stage's seconds on stderr, as it ends (what to speed up: `bake_laps`, ignored)
+    thread_local!(static LAST: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) });
+    if std::env::var_os("BAKE_LAPS").is_some() {
+        let now = std::time::Instant::now();
+        if let Some(t) = LAST.replace(Some(now)) {
+            eprintln!("[bake] lap {name}: {:.2} s", (now - t).as_secs_f64());
+        } else {
+            eprintln!("[bake] lap {name} (the first: no time before it)");
+        }
+    }
     SINK.with(|s| {
         if let Some((_, k)) = s.borrow_mut().as_mut() {
             *k = STAGES.iter().position(|s| s.0 == name).map_or(*k, |i| (i + 1).min(STAGES.len() - 1));
