@@ -200,8 +200,11 @@ impl Server {
                             // what it got before its name (a /give, a pick-up) is laid where it comes back
                             before = c.slots.iter_mut().filter_map(Option::take).collect();
                             let p = DVec3::from_array(sv.pos);
+                            // someone built there since it left: onto the open ground of that column, as the spawn
+                            // (`Server::spawn`); a free place is the same point to the bit
+                            let p = if phys::blocked(&self.world, p) { phys::open_ground(&self.world, p).unwrap_or(p) } else { p };
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots, c.marks) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots, sv.marks);
+                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots, c.marks) = (p.to_array(), sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots, sv.marks);
                             (c.journal, c.kept) = engine::journal::JOURNAL.load(&sv.journal);
                         }
                         let feet = self.clients[i].phys.pos;
