@@ -163,6 +163,7 @@ pub fn recharge(rain: f32, pet: f32, share: f32) -> f64 {
 /// half a minute on every planet. The table is a smooth surface between drains hundreds of metres apart (cells of
 /// 38 m on the 4 km planet, 5 m on the small one, 77 m on the huge one); where it meets the ground (springs, flooded
 /// caves, a dug hole) is read from the bilinear head against each column's own ground, not from these cells.
+/// A map with fewer cells a face edge (a planet under 1280 columns) is solved on its own.
 pub const EDGE: usize = 160;
 
 /// The table of a bake on plates once its `life` has run, metres over the sea a map cell (`DRY` on tight rock), and
@@ -174,7 +175,9 @@ pub const EDGE: usize = 160;
 pub fn table(b: &super::land::Bake, l: &super::life::Life, n: u32, pet_per_c: f32) -> (Vec<f32>, Vec<f64>, (u32, f32)) {
     let t = std::time::Instant::now();
     let (g, rocks) = (&b.g, &*crate::rock::ROCKS);
-    let (m, cells, e) = (g.m, g.n(), EDGE);
+    // (no more cells than the map has: a small planet's map, 32 to 96 cells a face edge, on 160 was each map cell
+    // solved several times over, thousands of sweeps and minutes of every test's and soak's bake)
+    let (m, cells, e) = (g.m, g.n(), EDGE.min(g.m));
     let bottom = -(crate::world::DEEP - crate::world::SEA_DEPTH) as f32;
     let mut river = vec![false; cells];
     for r in &b.rivers {
