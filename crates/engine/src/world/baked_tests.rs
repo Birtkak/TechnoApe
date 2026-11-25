@@ -2242,7 +2242,8 @@ fn bake_laps() {
 #[test]
 #[ignore]
 fn coarse_air_compare() {
-    let (new, old) = (Map::bake(1337, 6144), Map::bake_v10(1337, 6144));
+    // (the old map from the cache: `saves/bakes`)
+    let (new, old) = (Map::bake(1337, 6144), crate::bake::get_at(1337, 6144, crate::world::CONFORMAL));
     let (cn, co) = (new.climate.as_ref().unwrap(), old.climate.as_ref().unwrap());
     let stat = |a: &[f32], b: &[f32]| {
         let n = a.len() as f64;

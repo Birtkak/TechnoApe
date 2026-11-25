@@ -152,21 +152,21 @@ impl Map {
     }
     /// The bake of version 7, its climate over the hand-set YEAR: the map of every world before real gravity.
     pub fn bake_v7(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..land::Params::before_hills() }, crate::sky::YEAR);
         m.version = 7;
         m.finish(&m.to_bytes());
         m
     }
     /// The bake of version 8, before the volcanoes: the map of every world from real gravity to generation 9.
     pub fn bake_v8(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..land::Params::before_hills() }, crate::world::year_of(n, crate::world::REAL));
         m.version = 8;
         m.finish(&m.to_bytes());
         m
     }
     /// The bake of version 9, before the ground water: the map of every world from the volcanoes to generation 11.
     pub fn bake_v9(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { ground_water: false, coarse_air: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { ground_water: false, coarse_air: false, ..land::Params::before_hills() }, crate::world::year_of(n, crate::world::REAL));
         m.version = 9;
         m.finish(&m.to_bytes());
         m
@@ -174,7 +174,7 @@ impl Map {
     /// The bake of version 10, the year of its climate on the live air grid's own cells: the map of the worlds of
     /// generations 12 and 13.
     pub fn bake_v10(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { coarse_air: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { coarse_air: false, ..land::Params::before_hills() }, crate::world::year_of(n, crate::world::REAL));
         m.version = 10;
         m.finish(&m.to_bytes());
         m
@@ -202,7 +202,7 @@ impl Map {
     }
     /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
     pub fn bake_v5(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, volcanoes: false, ground_water: false, coarse_air: false, ..land::Params::before_hills() }, crate::sky::YEAR);
         m.version = 5;
         m.finish(&m.to_bytes());
         m
@@ -210,7 +210,7 @@ impl Map {
     /// The bake of version 6, before the polar caps (ADR 0107; Terra's stages without `ice`): what a save made on
     /// one plays on.
     pub fn bake_v6(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { volcanoes: false, ground_water: false, coarse_air: false, ..land::Params::before_hills() }, crate::sky::YEAR);
         m.version = 6;
         m.finish(&m.to_bytes());
         m
@@ -554,7 +554,7 @@ pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params, year: f64
     assert_eq!(stages[0], Plates, "run_with bakes on plates; a crust without them is `luna::run`");
     let (t, s) = (std::time::Instant::now(), seed as u32 as u64);
     let lp = if stages.contains(&Ice) { life::LifeParams::default() } else { life::LifeParams::capless() };
-    let lp = life::LifeParams { year, air_coarse: if p.coarse_air { lp.air_coarse } else { 1 }, ..lp };
+    let lp = life::LifeParams { year, air_coarse: if p.coarse_air { lp.air_coarse } else { 1 }, alpine_m: if p.hills > 0.0 { 150.0 } else { lp.alpine_m }, ..lp };
     let (mut crust, mut plates, mut year, mut life, mut volcanoes) = (None, None, None, None, Vec::new());
     for &st in stages {
         match st {

@@ -89,6 +89,34 @@ map by hash. A map is kept in the file of its own version, in the bytes of its o
   `World::baked` and `Server::baked` [0043]. A world saved on a v2 map before ADR 0058 moved under its edits (the hash is
   unchanged so it is not detected; accepted, v2 was a day old) [0058].
 
+### Hill country: the land inside the continents stands higher [0207, 2026-11-25]
+The developer: "make planets more irregular and hilly all over the board so our huge volcano and mountains don't
+look so much out of place". Measured first: the bigger the planet, the flatter its land. The ranges and the peaks'
+stretch (ADR 0105) are in metres, the continents grow with the planet, and the heights are scaled by the one
+highest peak: on the 8 km planet 99 % of the land lay under 47 m beside peaks of 350 m (52 m on the 4 km planet),
+and nothing under 45 m was stretched. From map version 11 (it joins generation 14, which no world had been made
+with):
+- **The shields rise as high as a range** (`shield_uplift` 1.0, was 0.35), so the rivers cut uplands inside the
+  continents instead of plains.
+- **Hill country** (`hills` 2.0, `hill_m` 700): uplift in ridges 700 m apart, in metres on every planet, stronger
+  in some regions than others. It goes in before the erosion, so every hill drains.
+- **The stretch starts at 10 m and eases in over 90** (was from 45 over 20): the same order of heights, the same
+  top; the foothills rise into the peaks instead of standing as a wall on a plain.
+- **The tree line is at 150 m** (`alpine_m`, was 58): at 58 m a sixth of the land was bare alpine ground; at 150
+  it is 3 % (1 % before), and the forests keep their shares within a tenth.
+What it gives, seed 1337: on the 8 km planet half the land is over 25 m (was 12), a tenth over 97 m (was 31), one
+cell in a hundred over 171 m (was 47); on the 4 km planet 25, 109 and 207 m (were 14, 33 and 52). The relief
+inside 130 m at the middle cell goes from 12 m to 33 m on the 8 km planet. The land is colder for it: tundra 2.4 %
+of the planet from 0.3, ice 8.0 from 6.3, wetland 0.4 from 1.6; the spawn is elsewhere. Small planets were rugged
+already and change little (the 1536 one: a tenth of the land over 108 m, was 104).
+Older maps are baked as before (`land::Params::before_hills`, pinned to the bit). Looked at in shots from the
+ground and from 350 m up at two places (`out/hills/`), not yet in play.
+Alternatives not taken: noise laid on the eroded land (rivers would run uphill and every dip would be a pond); a
+lower `mountain_m` (the peaks are the developer's call of 2026-11-11). Open: the strength is taste (the four
+numbers above are the knobs); the steepest tenth of the land is now steeper than 136 % between 8 m cells on the
+8 km planet (was 42 %), which is climbing, not walking; the map's lakes count 39,543 against 6,721 on the 4 km
+planet and were not looked into; Luna, Mars and the icy moon have their own bakes and are as they were.
+
 ### The bake's year on an air grid twice as coarse [0204, 2026-11-25]
 A new world's minutes were its climate's year of weather: real gravity's year (ADR 0181) is 334 days on the 4 km
 planet and 472 on the 8 km one where the hand-set year was 54, and the air model stepped every one of them on the

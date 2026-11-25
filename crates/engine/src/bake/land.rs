@@ -63,6 +63,19 @@ pub struct Params {
     /// The climate's year on an air grid twice as coarse as the live one (`life::LifeParams::air_coarse`, map
     /// version 11 on); false: the bakes before it, the year on the live grid's own cells.
     pub coarse_air: bool,
+    /// Hill country inside the continents: uplift in ridges `hill_m` metres apart, as a share of the peak's.
+    pub hills: f64,
+    pub hill_m: f64,
+    /// The peaks' stretch (`stretch`): the height it starts from and the metres over which it eases in.
+    pub stretch: (f32, f32),
+}
+
+impl Params {
+    /// The land of the maps before hill country (versions 10 and older): the shields' rise a third of today's, no
+    /// hills, the peaks stretched from `STRETCH_FROM` up.
+    pub fn before_hills() -> Params {
+        Params { shield_uplift: 0.35, hills: 0.0, stretch: (STRETCH_FROM, STRETCH_EASE), ..Params::default() }
+    }
 }
 
 impl Default for Params {
@@ -85,7 +98,7 @@ impl Default for Params {
             uplift: 1.0,
             river_area_m2: 1.5e5,
             plates: (8, 14),
-            shield_uplift: 0.35,
+            shield_uplift: 1.0,
             old_range_uplift: 0.8,
             continental: 0.48,
             collision_w: 0.05,
@@ -94,6 +107,9 @@ impl Default for Params {
             volcanoes: true,
             ground_water: true,
             coarse_air: true,
+            hills: 2.0,
+            hill_m: 700.0,
+            stretch: (10.0, 90.0),
         }
     }
 }
@@ -317,6 +333,7 @@ pub fn tectonics(g: &Grid, seed: u64, p: &Params) -> Tectonics {
     let edge: Vec<(u32, f64)> = (0..n as u32).filter(|&c| cont[c as usize] && g.around(c).any(|o| !cont[o as usize])).map(|c| (c, 0.0)).collect();
     let (inland, _) = dijkstra(g, &edge, f64::INFINITY, |_, o, d, _| if cont[o as usize] { d } else { f64::INFINITY });
     let old = noise(seed as i32 ^ 0x0e1d, 3);
+    let hill = noise(seed as i32 ^ 0x4b1d, 4);
     let mut uplift = vec![0f32; n];
     let mut h0 = vec![0f32; n];
     uplift.par_iter_mut().zip(h0.par_iter_mut()).enumerate().for_each(|(c, (u, h))| {
@@ -332,6 +349,12 @@ pub fn tectonics(g: &Grid, seed: u64, p: &Params) -> Tectonics {
             v += p.shield_uplift * (1.0 + nz);
             // old worn ranges along ancient sutures: the ridges of a low noise
             v += p.old_range_uplift * (1.0 - 4.0 * at(&old, d, 2.2).abs() as f64).max(0.0);
+            if p.hills > 0.0 {
+                // hill country: ridges a few hundred metres apart (in metres on every planet), stronger in some
+                // regions than others
+                let ridge = (1.0 - 2.0 * at(&hill, d, r / p.hill_m).abs() as f64).max(0.0);
+                v += p.hills * ridge * ridge * (0.7 + 0.6 * at(&base, d, 2.0) as f64).clamp(0.2, 1.3);
+            }
         }
         for (s, a) in &spots {
             v += a * (-(d.dot(*s).clamp(-1., 1.).acos() * r / (p.arc_w * r * 0.5)).powi(2)).exp();
@@ -944,8 +967,8 @@ pub fn erosion(c: Crust, planet_n: u32, seed: u64, p: &Params) -> Bake {
     // the lakes are found before the peaks are stretched (ADR 0105), so they are the unstretched bake's
     let lake = (0..gf.n()).map(|c| !d.ocean[c] && lm[c] - hm[c] > LAKE * scale.0).collect();
     let extra = p.peak_extra_m * (planet_n as f32 / 6144.0).min(1.0);
-    hm.iter_mut().chain(wm.iter_mut()).chain(lm.iter_mut()).for_each(|v| *v = stretch(*v, p.mountain_m, extra));
-    lakes.iter_mut().for_each(|l| l.level = stretch(l.level, p.mountain_m, extra));
+    hm.iter_mut().chain(wm.iter_mut()).chain(lm.iter_mut()).for_each(|v| *v = stretch(*v, p.mountain_m, extra, p.stretch));
+    lakes.iter_mut().for_each(|l| l.level = stretch(l.level, p.mountain_m, extra, p.stretch));
     lap("rivers and lakes", &mut times);
     let (recv, area, ocean) = (d.recv, d.area, d.ocean);
     Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, lake, plate, boundary, continental, rock, rivers, lakes, times, converged: (conv_c, conv_f), scale, life: None }
@@ -954,20 +977,20 @@ pub fn erosion(c: Crust, planet_n: u32, seed: u64, p: &Params) -> Bake {
 /// Land under this height, metres over the sea, is never stretched (`stretch`).
 pub const STRETCH_FROM: f32 = 45.0;
 /// Over this many metres above `STRETCH_FROM` the stretch eases from none to its full factor.
-const STRETCH_EASE: f32 = 20.0;
+pub const STRETCH_EASE: f32 = 20.0;
 
 /// The peaks stretched (ADR 0105): height `v` over the sea on land whose highest point is `top`, raised so
 /// that `top` stands `extra` higher. Under `STRETCH_FROM` it is `v` to the bit; above, the relief over it is
 /// scaled by a factor that eases in from 1, so the map's slope is continuous and the order of heights (every
 /// downhill, so every river and lake) is kept.
-pub fn stretch(v: f32, top: f32, extra: f32) -> f32 {
-    if v <= STRETCH_FROM || extra <= 0.0 {
+pub fn stretch(v: f32, top: f32, extra: f32, (from, ease): (f32, f32)) -> f32 {
+    if v <= from || extra <= 0.0 {
         return v;
     }
-    debug_assert!(top > STRETCH_FROM + STRETCH_EASE, "the stretch eases in under the highest land");
-    let x = v - STRETCH_FROM;
-    let e = (x / STRETCH_EASE).min(1.0);
-    STRETCH_FROM + x * (1.0 + extra / (top - STRETCH_FROM) * e * e * (3.0 - 2.0 * e))
+    debug_assert!(top >= from + ease, "the stretch eases in under the highest land");
+    let x = v - from;
+    let e = (x / ease).min(1.0);
+    from + x * (1.0 + extra / (top - from) * e * e * (3.0 - 2.0 * e))
 }
 
 /// Mean height step between neighbours (inside a face, across a seam): a seam that shows has a larger one.
@@ -1011,6 +1034,74 @@ impl Bake {
 mod tests {
     use super::*;
 
+    /// The land's relief by numbers, to try values with (RELIEF_N, RELIEF_SEED; HILLS, HILL_M, SHIELD, OLD, KAPPA,
+    /// K, MOUNTAIN, EXTRA override the parameters): the heights' quantiles, the relief inside 130 m, the slope.
+    #[test]
+    #[ignore]
+    fn relief_report() {
+        let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<f64>().ok());
+        let mut p = Params { volcanoes: false, ..Params::default() };
+        p.hills = env("HILLS").unwrap_or(p.hills);
+        p.hill_m = env("HILL_M").unwrap_or(p.hill_m);
+        p.shield_uplift = env("SHIELD").unwrap_or(p.shield_uplift);
+        p.old_range_uplift = env("OLD").unwrap_or(p.old_range_uplift);
+        p.kappa = env("KAPPA").map_or(p.kappa, |v| v as f32);
+        p.k = env("K").map_or(p.k, |v| v as f32);
+        p.mountain_m = env("MOUNTAIN").map_or(p.mountain_m, |v| v as f32);
+        p.peak_extra_m = env("EXTRA").map_or(p.peak_extra_m, |v| v as f32);
+        p.stretch = (env("FROM").map_or(p.stretch.0, |v| v as f32), env("EASE").map_or(p.stretch.1, |v| v as f32));
+        let (n, seed) = (env("RELIEF_N").unwrap_or(3072.0) as u32, env("RELIEF_SEED").unwrap_or(1337.0) as u64);
+        let b = bake(n, seed, &p);
+        let g = &b.g;
+        let land: Vec<usize> = (0..g.n()).filter(|&c| b.land(c) && !b.lake(c)).collect();
+        let q = |v: &mut Vec<f32>| {
+            v.sort_by(f32::total_cmp);
+            [0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0].map(|s: f32| v[((v.len() - 1) as f32 * s) as usize].round())
+        };
+        let mut hs: Vec<f32> = land.iter().map(|&c| b.h[c]).collect();
+        // the relief inside 8 cells (64 m) of every 53rd land cell, and its steepest drop to a neighbour
+        let (mut rel, mut slope) = (Vec::new(), Vec::new());
+        for &c in land.iter().step_by(53) {
+            let (mut lo, mut hi) = (b.h[c], b.h[c]);
+            let mut seen = std::collections::HashSet::from([c as u32]);
+            let mut ring = vec![c as u32];
+            for _ in 0..8 {
+                let mut next = Vec::new();
+                for &a in &ring {
+                    for o in g.around(a) {
+                        if seen.insert(o) {
+                            let h = b.h[o as usize].max(0.0);
+                            (lo, hi) = (lo.min(h), hi.max(h));
+                            next.push(o);
+                        }
+                    }
+                }
+                ring = next;
+            }
+            rel.push(hi - lo);
+            slope.push(g.around(c as u32).map(|o| (b.h[c] - b.h[o as usize].max(0.0)) / g.dist(c as u32, o)).fold(0f32, f32::max) * 100.0);
+        }
+        println!("RELIEF hills {} hill_m {} shield {} old {} kappa {} k {}: lakes {} rivers {}", p.hills, p.hill_m, p.shield_uplift, p.old_range_uplift, p.kappa, p.k, b.lakes.len(), b.rivers.len());
+        println!("RELIEF  height m    (10 25 50 75 90 99 100 %): {:?}", q(&mut hs));
+        println!("RELIEF  relief in 130 m                      : {:?}", q(&mut rel));
+        println!("RELIEF  slope %                              : {:?}", q(&mut slope));
+        // RELIEF_PNG: the face with the most land, its heights shaded from the north-west (sea blue, land by height)
+        if let Ok(path) = std::env::var("RELIEF_PNG") {
+            let m = g.m;
+            let f = (0..6).max_by_key(|&f| (0..m * m).filter(|&k| b.land(g.idx(f, k % m, k / m) as usize)).count()).unwrap();
+            let mut img = super::super::pictures::Img { w: m, h: m, px: vec![[0; 3]; m * m] };
+            for (j, i) in (0..m).flat_map(|j| (0..m).map(move |i| (j, i))) {
+                let h = |i: usize, j: usize| b.h[g.idx(f, i.min(m - 1), j.min(m - 1)) as usize];
+                let v = h(i, j);
+                let shade = (0.75 + (h(i + 1, j + 1) - v) * 0.06).clamp(0.25, 1.25);
+                let t = (v / 150.0).clamp(0.0, 1.0);
+                let c = if v <= 0.0 { [40.0, 70.0, 130.0] } else { [90.0 + 130.0 * t, 150.0 - 20.0 * t, 70.0 + 110.0 * t] };
+                img.px[j * m + i] = c.map(|x| (x * if v <= 0.0 { 1.0 } else { shade }).clamp(0.0, 255.0) as u8);
+            }
+            img.save(&path).unwrap();
+        }
+    }
+
     /// The fast drainage (land masses and basins in parallel, radix heap and buckets) against the slow path
     /// it replaced, kept here as the reference: one binary-heap Priority-Flood and one serial sweep of the
     /// area. The same water level and the same area to the bit.
@@ -1018,19 +1109,39 @@ mod tests {
     #[test]
     fn the_stretch_keeps_the_lowland_and_the_order_and_lifts_the_top() {
         let (top, extra) = (120.0, 230.0);
-        for v in [-60.0, 0.0, 12.5, STRETCH_FROM] {
-            assert_eq!(stretch(v, top, extra).to_bits(), (v as f32).to_bits(), "{v} is lowland");
+        // the stretch of the maps before hill country, and today's (from lower, eased in over more)
+        for (from, ease) in [(STRETCH_FROM, STRETCH_EASE), Params::default().stretch] {
+            let by = (from, ease);
+            for v in [-60.0, 0.0, from * 0.3, from] {
+                assert_eq!(stretch(v, top, extra, by).to_bits(), (v as f32).to_bits(), "{v} is lowland");
+            }
+            assert_eq!(stretch(top, top, extra, by), top + extra, "the highest");
+            let mut last = from;
+            for k in 1..=((top - from) * 100.0) as usize {
+                let v = from + k as f32 * 0.01;
+                let s = stretch(v, top, extra, by);
+                assert!(s > last, "{v}: {s} not over {last}");
+                assert!(k > 1 || s - last < 0.0101, "no step where the stretch begins");
+                last = s;
+            }
+            assert_eq!(stretch(80.0, top, 0.0, by), 80.0, "no extra, no stretch");
         }
-        assert_eq!(stretch(top, top, extra), top + extra, "the highest");
-        let mut last = STRETCH_FROM;
-        for k in 1..=7500 {
-            let v = STRETCH_FROM + k as f32 * 0.01;
-            let s = stretch(v, top, extra);
-            assert!(s > last, "{v}: {s} not over {last}");
-            assert!(k > 1 || s - last < 0.0101, "no step where the stretch begins");
-            last = s;
-        }
-        assert_eq!(stretch(80.0, top, 0.0), 80.0, "no extra, no stretch");
+    }
+
+    /// Hill country (ADR 0207): the land inside the continents stands higher than on the maps before it, the top
+    /// and the sea's share the same.
+    #[test]
+    fn hill_country_raises_the_land_and_keeps_the_top_and_the_sea() {
+        let quart = |b: &Bake| {
+            let mut v: Vec<f32> = (0..b.g.n()).filter(|&c| b.land(c) && !b.lake(c)).map(|c| b.h[c]).collect();
+            v.sort_by(f32::total_cmp);
+            (v[v.len() / 2], v[v.len() * 9 / 10], v[v.len() - 1], v.len() as f32 / b.g.n() as f32)
+        };
+        let p = |p: Params| Params { volcanoes: false, ..p };
+        let (new, old) = (quart(&bake(3072, 5, &p(Params::default()))), quart(&bake(3072, 5, &p(Params::before_hills()))));
+        assert!(new.0 > 1.2 * old.0 && new.1 > 1.3 * old.1, "half and a tenth of the land stand over {:?}, before {:?}", new, old);
+        assert!((new.2 - old.2).abs() < 0.01, "the highest land {} against {}", new.2, old.2);
+        assert!((new.3 - old.3).abs() < 0.02, "the land's share {} against {}", new.3, old.3);
     }
 
     /// A plain wider than LAKE / EPS cells is no lake: the flood's epsilon must not add up to one there (it
