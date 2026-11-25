@@ -16,11 +16,13 @@ fn the_512_planets_table_settles() {
 }
 
 /// The table is solved on no more cells a face edge than the map has: the 512 planet's map has 64, and on the 160
-/// of the big planets it took 4,650 sweeps and 85 s of every test run that bakes it.
+/// of the big planets it took 4,650 sweeps and 85 s of every test run that bakes it (on hill country the 1536 planet
+/// of seed 5 takes 8,675 and 200 s). Seed 5's 512 planet takes 3,625 sweeps and 9 s on hill country, 1,925 and 5 s on
+/// the land before it.
 #[test]
 fn a_small_planets_table_is_solved_on_its_own_cells() {
     let (sweeps, _) = MAP.solve;
-    assert!(sweeps < 3500, "{sweeps} sweeps for 64 cells a face edge");
+    assert!(sweeps < 4500, "{sweeps} sweeps for 64 cells a face edge");
 }
 
 /// A small planet's solve stops when its balance is right, not when its sweeps stop moving: the soak's 256
@@ -617,7 +619,10 @@ fn far_tiles_carry_the_canopy() {
                 let trunks: Vec<Foot> = ((lo - REACH).div_euclid(SPACING)..=(hi + REACH).div_euclid(SPACING)).flat_map(|cx| ((lo2 - REACH).div_euclid(SPACING)..=(hi2 + REACH).div_euclid(SPACING)).map(move |cy| (cx, cy))).filter_map(|(cx, cy)| b.candidate(face, cx, cy)).filter(|f| ROWS.plants[f.plant].trunk != 0).collect();
                 // (by a seam the next face's trees reach in too)
                 let inner = lo >= REACH && lo2 >= REACH && hi + REACH <= b.n && hi2 + REACH <= b.n;
-                if trunks.is_empty() && inner {
+                // (the ice on a polar lake is the far ground too, ADR 0107: hill country's lakes put some in these tiles)
+                let q = 1 << level;
+                let iced = b.ice_sheet(face, (fi << level) + q / 2, (fj << level) + q / 2).is_some();
+                if trunks.is_empty() && inner && !iced {
                     assert_eq!(t.h[k], ground, "level {level} ({fi}, {fj}): no tree, yet raised");
                     bare += 1;
                 } else if trunks.iter().any(|f| (lo..hi).contains(&f.i) && (lo2..hi2).contains(&f.j)) {
@@ -649,7 +654,9 @@ fn the_fast_canopy_matches_the_plants() {
         // every column of a strip over each seam and a band through the middle
         let cols = (0..n).step_by(3).flat_map(|i| (0..REACH + 2).chain(n / 2 - 8..n / 2 + 8).chain(n - REACH - 2..n).map(move |j| (i, j)));
         for (i, j) in cols.flat_map(|(i, j)| [(i, j), (j, i)]) {
-            let slow = b.plants_with(f, i, j, &mut |g, cx, cy| b.candidate(g, cx, cy)).last().copied();
+            // (the ice sheet `plants_with` lays on a lake is no plant: the far tiles ask `ice_sheet` for it themselves)
+            let ice = b.ice_sheet(f, i, j);
+            let slow = b.plants_with(f, i, j, &mut |g, cx, cy| b.candidate(g, cx, cy)).into_iter().filter(|&o| Some(o) != ice).last();
             assert_eq!(b.plant_top_with(f, i, j, &mut |g, cx, cy| b.candidate(g, cx, cy)), slow, "column {f} {i} {j}");
             tops += slow.is_some() as usize;
         }
@@ -714,13 +721,21 @@ fn the_fast_canopy_matches_the_plants() {
                 } else {
                     let q = 1 << level;
                     let at: &[(i32, i32)] = if level == 1 { &[(1, 1)] } else { &[(q / 4, q / 4), (3 * q / 4, q / 4), (q / 4, 3 * q / 4), (3 * q / 4, 3 * q / 4)] };
-                    let tops = at.iter().filter_map(|&(a, c)| b.plants_with(g, (fi << level) + a, (fj << level) + c, &mut |g, cx, cy| b.candidate(g, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0)).last().copied());
+                    // (the trees' blocks alone: the ice sheet `plants_with` lays on a lake is raised to after, as the tile does)
+                    let tops = at.iter().filter_map(|&(a, c)| {
+                        let ice = b.ice_sheet(g, (fi << level) + a, (fj << level) + c);
+                        b.plants_with(g, (fi << level) + a, (fj << level) + c, &mut |g, cx, cy| b.candidate(g, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0)).into_iter().filter(|&o| Some(o) != ice).last()
+                    });
                     let (pi, pj) = ((fi as f64 + 0.5) * q as f64, (fj as f64 + 0.5) * q as f64);
                     let hv = b.height_at(g, pi, pj, b.dir(g, pi, pj), level);
                     let mut want = hv;
                     if let Some((z, _)) = tops.max_by_key(|o| o.0) {
                         let wet = b.water_at(g as u8, (fi << level) + q / 2, (fj << level) + q / 2).is_some_and(|w| w.0 > b.layer_of(hv));
                         want = if b.layer_r(z as f64 + 1.0) > hv && !wet { b.layer_r(z as f64 + 1.0) } else { hv };
+                    }
+                    // the ice on a polar lake over the coarse column's middle, at least up to the middle of its coarse cell
+                    if let Some((z, _)) = b.ice_sheet(g, (fi << level) + q / 2, (fj << level) + q / 2) {
+                        want = want.max(b.layer_r((z as f64 + 1.0).max((z.div_euclid(q) as f64 + 0.5) * q as f64 + 0.01)));
                     }
                     assert_eq!(t.h[k], want, "level {level} tile {f} {x} {y} column {u} {v}");
                 }
@@ -880,9 +895,32 @@ fn baked_tiles_match_the_direct_columns() {
             }
         }
     }
-    let sea = b.layer_r(b.sea.unwrap());
-    assert!(b.height(b.spawn) > sea + 1.0, "the spawn is on land");
+    // (the spawn of a world of today's generation: this test's world is of generation 0, whose spawn on hill country
+    // is the old rule's beach, 0.58 m over the sea; `a_generation_15_spawn_stands_clear_of_the_sea`)
+    let w15 = World::with_grid(512, 32, 5, Some(MAP.clone()), None, 0.0, GENERATION);
+    let b15 = &w15.bodies[0];
+    assert!(b15.height(b15.spawn) > b15.layer_r(b15.sea.unwrap()) + 1.0, "the spawn is on land");
     assert!(b.col_height(2, 3, 4) - b.radius < AMP && b.radius - b.col_height(2, 3, 4) < AMP);
+}
+
+/// From generation 15 the spawn's column has its first air a block and a half over the sea (ADR 0207): on hill country
+/// the nearest column of this planet clear of plants was a beach 0.58 m over the water. A world of an earlier generation
+/// keeps the old rule, so its spawn is where it was: the generation-0 world's on that beach. (Generation 14's, on the
+/// warped grid, is 1.9 m over already: the rule leaves it where it was, the column generation 15 picks too.)
+#[test]
+fn a_generation_15_spawn_stands_clear_of_the_sea() {
+    let over = |w: &World| {
+        let b = &w.bodies[0];
+        let (f, i, j) = b.locate(b.spawn);
+        b.first_air(b.col_height(f as u8, i as i32, j as i32)) as f64 - b.sea.unwrap()
+    };
+    let at = |gen: u8| World::with_grid(512, 32, 5, Some(MAP.clone()), None, 0.0, gen);
+    let (w14, w15, w0) = (at(HILL_COUNTRY - 1), at(HILL_COUNTRY), world());
+    eprintln!("first air over the sea at the spawn: generation 0 {:.3}, 14 {:.3}, 15 {:.3}", over(&w0), over(&w14), over(&w15));
+    assert!(over(&w15) > 1.5, "generation 15: {}", over(&w15));
+    assert!(over(&w0) < 1.5, "generation 0 keeps the old rule's beach: {}", over(&w0));
+    let (f, i, j) = w14.bodies[0].locate(w14.bodies[0].spawn);
+    assert_eq!((f, i as i32, j as i32), (4, 317, 445), "generation 14's spawn where it was");
 }
 
 /// ADR 0107: on the developer's world the polar sea carries a sheet of ice one block thick at its surface, over
@@ -2242,7 +2280,8 @@ fn bake_laps() {
 #[test]
 #[ignore]
 fn coarse_air_compare() {
-    let (new, old) = (Map::bake(1337, 6144), Map::bake_v10(1337, 6144));
+    // (the old map from the cache: `saves/bakes`)
+    let (new, old) = (Map::bake(1337, 6144), crate::bake::get_at(1337, 6144, crate::world::CONFORMAL));
     let (cn, co) = (new.climate.as_ref().unwrap(), old.climate.as_ref().unwrap());
     let stat = |a: &[f32], b: &[f32]| {
         let n = a.len() as f64;
@@ -2300,3 +2339,4 @@ fn live_rain_compare() {
             c.m, vap0, cloud0, soil0, snow0, days.join(", "), c.rain.iter().map(|x| *x as f64).sum::<f64>() / c.rain.len() as f64);
     }
 }
+

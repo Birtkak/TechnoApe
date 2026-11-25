@@ -126,7 +126,10 @@ impl Body {
         // the scored spawn, moved to the nearest column with no plant within a step
         let (f, x, y) = self.locate(spawn);
         let (i0, j0) = (x as i32, y as i32);
-        let clear = |i: i32, j: i32| (-1..=1).all(|a| (-1..=1).all(|b| self.col_plants(f as u8, i + a, j + b).is_empty()));
+        // (from generation 15 also a column a block and a half over the sea: on hill country the nearest clear column
+        // of a forest by the shore was the beach, 0.6 m over the water on the 512 planet of seed 5)
+        let dry = |i: i32, j: i32| self.gen < HILL_COUNTRY || self.sea.is_none_or(|sea| self.first_air(self.col_height(f as u8, i, j)) as f64 > sea + 1.5);
+        let clear = |i: i32, j: i32| dry(i, j) && (-1..=1).all(|a| (-1..=1).all(|b| self.col_plants(f as u8, i + a, j + b).is_empty()));
         let at = (0..=12).flat_map(|r| (-r..=r).flat_map(move |a| (-r..=r).map(move |b| (a, b))).filter(move |(a, b): &(i32, i32)| a.abs().max(b.abs()) == r)).find(|(a, b)| clear(i0 + a, j0 + b));
         let (a, b) = at.unwrap_or((0, 0));
         self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);
@@ -160,7 +163,7 @@ impl Body {
     /// tubes as caves. A planet's crust (Mars, `bake::mars`) the same, without caves: its marked tubes wait for
     /// its rock provinces; an icy body's (`bake::icy`) too.
     pub fn with_luna(self, map: Arc<Map>) -> Self {
-        if map.version == crate::bake::mars::VERSION || map.version == crate::bake::icy::VERSION {
+        if crate::bake::mars::is(map.version) || map.version == crate::bake::icy::VERSION {
             return self.with_map(map);
         }
         let mut b = self.with_map(map.clone());
@@ -201,7 +204,7 @@ impl Body {
         match self.map() {
             Some(m) if m.version == crate::bake::luna::VERSION => crate::bodies::moon(&BODIES).unwrap_or(0),
             // shortcut: the one row that bakes a planet's crust; a second such row needs its index in the body
-            Some(m) if m.version == crate::bake::mars::VERSION => BODIES.iter().position(|r| r.bake.as_ref().is_some_and(|b| b.2.is_some())).unwrap_or(0),
+            Some(m) if crate::bake::mars::is(m.version) => BODIES.iter().position(|r| r.bake.as_ref().is_some_and(|b| b.2.is_some())).unwrap_or(0),
             _ => 0,
         }
     }
@@ -297,7 +300,7 @@ impl Body {
             h = h.min(c.cut as f64).max(c.floor as f64);
         }
         // maps from before ADR 0105's peaks keep the clamp of AMP 140, so their worlds keep their ground to the bit
-        let amp = if (6..=crate::bake::VERSION).contains(&b.map.version) || b.map.version == crate::bake::mars::VERSION { AMP } else { 140.0 };
+        let amp = if (6..=crate::bake::VERSION).contains(&b.map.version) || crate::bake::mars::is(b.map.version) { AMP } else { 140.0 };
         self.radius - SEA_DEPTH + h.clamp(-FLOOR, amp - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.
@@ -369,9 +372,11 @@ impl Body {
         if self.gen < 4 && b.map.version == crate::bake::luna::VERSION {
             return Rock::NONE;
         }
-        let (x, y) = self.jittered(b, i, j, d);
+        self.rock_from(b, face, i, j, d, self.map_point(b, i, j, d))
+    }
+    /// `rock_at` from the column's `map_point` (a body that has rock).
+    pub(super) fn rock_from(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, (_, _, mx, my): (f64, f64, f64, f64)) -> Rock {
         let s = b.map.m as f64 / self.n as f64;
-        let (mx, my) = self.map_xy(s, x, y);
         let Some(p) = b.map.rock(face, mx, my) else { return Rock::NONE };
         let [amp, width] = ROCKS.provinces[p as usize].fold;
         let q = d * (self.radius / width as f64);
@@ -418,9 +423,17 @@ impl Body {
     /// `ground_at` and the biome it is of (0 on a planet with no map).
     pub(crate) fn ground_biome_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> ([u16; 3], u8) {
         let Some(b) = &self.baked else { return (self.ground, 0) };
+        self.ground_biome_from(b, face, i, j, d, h, self.map_point(b, i, j, d))
+    }
+    /// The jittered point of face point (i, j) in columns and in the map's cells: what the ground's and the
+    /// rock's lookups both start from (two noise reads and a look at the grid's warp).
+    pub(super) fn map_point(&self, b: &Baked, i: f64, j: f64, d: DVec3) -> (f64, f64, f64, f64) {
         let (x, y) = self.jittered(b, i, j, d);
-        let s = b.map.m as f64 / self.n as f64;
-        let (mx, my) = self.map_xy(s, x, y);
+        let (mx, my) = self.map_xy(b.map.m as f64 / self.n as f64, x, y);
+        (x, y, mx, my)
+    }
+    /// `ground_biome_at` from the column's `map_point`.
+    pub(super) fn ground_biome_from(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, h: f64, (x, y, mx, my): (f64, f64, f64, f64)) -> ([u16; 3], u8) {
         let biome = b.map.biome(face, mx, my);
         // a live volcano's upper cone is bare basalt (`volcano::BARE`)
         if !b.craters.is_empty() && self.bare_cone(face as u8, i.floor() as i32, j.floor() as i32) {
@@ -784,7 +797,8 @@ impl Body {
         if z < 0 || self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)).is_empty() || ground < self.layer_r(z as f64 + 0.5) {
             return None;
         }
-        let k = self.col_ores(face, i, j, ground).into_iter().find(|&(lo, hi, _)| (lo..hi).contains(&z))?.2;
+        // (`col_ores`'s first match, without its list)
+        let k = self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)).iter().copied().find(|&k| self.ores[k as usize].span(self, i, j, ground).is_some_and(|(lo, hi)| (lo..hi).contains(&z)))?;
         (!self.col_caves(face, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&z))).then_some(k)
     }
     /// The halo of altered rock that layer z of column (face, i, j) is (ADR 0095), as (body, grade): the

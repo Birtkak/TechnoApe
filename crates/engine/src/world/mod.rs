@@ -108,7 +108,7 @@ pub const MANTLE_STEP: i32 = 256;
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
 /// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
-pub const GENERATION: u8 = COARSE_AIR;
+pub const GENERATION: u8 = HILL_COUNTRY;
 /// The generation of real gravity (ADR 0181): every body's pull from its own mass (Luna of the Moon's
 /// make-up, `bodies::Row::makeup_at`), the periods by Kepler's law from the masses, the sun's mass from its row,
 /// tides from the masses and distances, water by its body's pull, and Terra's map baked over that year. A world of
@@ -144,6 +144,11 @@ pub const CONFORMAL: u8 = 13;
 /// steps twice as long, the live grid laid from it and run two days into the year's turn. A world of an earlier
 /// generation plays on its map of version 10, baked as before.
 pub const COARSE_AIR: u8 = 14;
+/// The generation of hill country (ADR 0207, the developer, 2026-11-25: "more irregular and hilly all over the
+/// board", "mars it's mountains look not right too"): Terra's map of version 12, the land inside her continents
+/// in hills and uplands, and Mars's of version 202, his shields broad lobed domes. A world of an earlier generation
+/// plays on Terra's map of version 11 or older and Mars's of 201, baked as before.
+pub const HILL_COUNTRY: u8 = 15;
 /// The block grid's warp of a world of generation `gen` (`Body::warp`): the save and the welcome carry the
 /// generation, so the grid follows from it.
 pub fn grid_warp(gen: u8) -> f64 {

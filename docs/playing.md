@@ -88,6 +88,9 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   table and no higher; bail it and it fills again, counted. No keys or commands. `technoape-server report=1 seed=
   planet=` prints `ground_water`: the table's depth by province, in the wettest and driest quarters, the share of
   tight land (no table), springs and their streams, the flooded caves and the depth at and round the spawn.
+- Hill country (generation 15, ADR 0207): a new world's land is hills and uplands between the ranges, most of all on
+  the big planets, and trees grow up to 150 m; Mars's volcanoes are broad lobed domes. A world made before keeps
+  its land and its Mars (`gen=14` makes one).
 - The bake's coarser year (generation 14, ADR 0204): a new world's climate is run on an air grid twice as coarse, so
   the 4 km planet bakes in about a minute where it took three; `gen=13` makes a world on the year as it was run before.
 - The conformal grid (generation 13, ADR 0131): every body's block tops are square, a metre at a face's middle and

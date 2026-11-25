@@ -182,12 +182,13 @@ impl Ground for Solid<'_> {
     }
     fn ice(&self, c: Col, z: i32) -> bool {
         let Some(f) = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).freeze.as_ref() else { return false };
-        let ice = BLOCKS.id(&f.into);
+        // (by the block's name: looking the id up walked every block's name a call)
+        let ice = |m: u16| BLOCKS.get(m).is_some_and(|d| d.name == f.into);
         let k = Key { body: c.body(), face: c.face(), level: 0, pos: IVec3::new(c.i().div_euclid(CS), c.j().div_euclid(CS), z.div_euclid(CS)) };
         match self.edits.get(&k).and_then(|cells| cells.get(&IVec3::new(c.i(), c.j(), z))) {
-            Some(&m) => m == ice,
+            Some(&m) => ice(m),
             // the bake's: its sea ice and the plants over the ground
-            None => self.bodies[c.body() as usize].col_plants(c.face(), c.i(), c.j()).iter().any(|&(zz, m)| zz == z && m == ice),
+            None => self.bodies[c.body() as usize].col_plants(c.face(), c.i(), c.j()).iter().any(|&(zz, m)| zz == z && ice(m)),
         }
     }
     fn reach(&self, c: Col) -> u32 {

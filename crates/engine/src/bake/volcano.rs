@@ -136,6 +136,14 @@ pub(crate) mod tests {
     pub(crate) fn live_seed() -> (i32, std::sync::Arc<Map>) {
         (1..=12).map(|s| (s, shared(s, 768))).find(|(_, m)| m.volcanoes.iter().any(|v| v.alive)).expect("a live volcano on a small planet in 12 seeds")
     }
+    /// `live_seed` on the land before hill country (map version 11, generation 14): the site the tests of a lava
+    /// lake's rim and of a pond at the spawn were written for (on hill country seed 2's spawn and crater differ).
+    pub(crate) fn live_seed_v11() -> (i32, std::sync::Arc<Map>) {
+        static LIVE: std::sync::LazyLock<(i32, std::sync::Arc<Map>)> = std::sync::LazyLock::new(|| {
+            (1..=12).map(|s| (s, std::sync::Arc::new(Map::bake_v11(s, 768)))).find(|(_, m)| m.volcanoes.iter().any(|v| v.alive)).expect("a live volcano on a small planet in 12 seeds")
+        });
+        LIVE.clone()
+    }
 
     /// Volcanoes are the seed's (a second bake places the same, to the bit), each on the arc's land with its cone
     /// raised over the foot and a crater under the rim, two in three alive; the bake before them (version 8) has

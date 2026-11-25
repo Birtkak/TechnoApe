@@ -136,11 +136,13 @@ impl World {
     /// shortcut: a wall blocks all radiant heat and passes none by conduction, until blocks' rows carry conductivity,
     /// heat capacity and emissivity.
     fn ray(&self, g: &Solid<'_>, rows: &crate::fluids::Fluids, p: DVec3, dir: DVec3, probes: &mut u64) -> Option<(f64, f64)> {
-        let mut cell = self.block_at(p);
+        // where the ray is now, in the grid: placed once a step (placing a point is the dear part)
+        let mut here = self.grid_at(p);
+        let mut cell = self.block_of(here);
         let (mut t, mut looked, mut steps) = (0.0, 0, 0);
         while t < RAY_REACH && looked < RAY_CELLS && steps < 4 * RAY_CELLS {
             steps += 1;
-            let (_, f0, g0) = self.grid_at(p + dir * t);
+            let (_, f0, g0) = here;
             let (_, f1, g1) = self.grid_at(p + dir * (t + 0.01));
             let wall = if f0 == f1 {
                 let d = (g1 - g0) / 0.01;
@@ -150,7 +152,8 @@ impl World {
                 0.0
             };
             t += wall + 1e-3;
-            let next = self.block_at(p + dir * t);
+            here = self.grid_at(p + dir * t);
+            let next = self.block_of(here);
             if next == cell {
                 continue;
             }
@@ -533,7 +536,10 @@ mod tests {
     /// From 30 m out the eye is raised 54 m to see past the rim, over `RAY_REACH` from the lake: the air's.
     #[test]
     fn a_lava_lakes_felt_falls_with_distance_under_its_crust() {
-        let w = volcano_world();
+        // (on the land it was written for: on hill country seed 2's lake sits in a crater so deep that 20 m out the
+        // eye must rise 47 m to see its rim, and the felt is the air's from there on)
+        let (seed, map) = crate::bake::volcano::tests::live_seed_v11();
+        let w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, HILL_COUNTRY - 1);
         let b = &w.bodies[0];
         let c = b.craters().iter().find(|c| c.lake.is_some()).expect("a lake").clone();
         let ej = c.at.1 as i32;

@@ -30,9 +30,25 @@ pub struct Planet {
     /// An icy body's crust (step 6c, `bake::icy`: Luna's stages on ice, its own kinds) in place of a planet's: the
     /// sun's height over its equator that its ice stage reads (`luna::sun_high`), so its map's file names it too.
     pub icy: Option<f64>,
+    /// Its shields as the round cones of the maps before version 202 (`bake::mars::CONES`): a world before
+    /// generation 15 (`Bake::at`); false in every row.
+    pub cones: bool,
 }
 
 impl Bake {
+    /// This bake as a world of generation `gen` has it: a planet's crust before generation 15 (`world::HILL_COUNTRY`) with
+    /// its shields as cones. (Terra's map by generation is `get_at`'s and `file_at`'s.)
+    pub fn at(&self, gen: u8) -> Bake {
+        Bake(self.0.clone(), self.1, self.2.clone().map(|p| Planet { cones: p.icy.is_none() && gen < crate::world::HILL_COUNTRY, ..p }))
+    }
+    /// `get` for a world of generation `gen`.
+    pub fn get_at(&self, seed: i32, n: i32, gen: u8) -> std::sync::Arc<crate::bake::Map> {
+        if self.0[..] == Stage::TERRA && self.2.is_none() { crate::bake::get_at(seed, n, gen) } else { self.at(gen).get(seed, n) }
+    }
+    /// `file` for a world of generation `gen`.
+    pub fn file_at(&self, seed: i32, n: i32, gen: u8) -> std::path::PathBuf {
+        if self.0[..] == Stage::TERRA && self.2.is_none() { crate::bake::file_at(seed, n, gen) } else { self.at(gen).file(seed, n) }
+    }
     /// This bake's map of a world: from memory, the disk or baked now.
     pub fn get(&self, seed: i32, n: i32) -> std::sync::Arc<crate::bake::Map> {
         if let Some(p) = &self.2 {
@@ -48,7 +64,9 @@ impl Bake {
     /// The map of this hash, baked again if it is not kept; None when this build bakes another.
     pub fn for_hash(&self, seed: i32, n: i32, hash: u64) -> Option<std::sync::Arc<crate::bake::Map>> {
         match &self.0[..] {
-            _ if self.2.is_some() => Some(self.get(seed, n)).filter(|m| m.hash == hash),
+            // (a planet's crust: as it is baked today, else with the cones of a world before generation 15)
+            // (the kept one first, of either version, so a world of the cones bakes no domes on its way to them)
+            _ if self.2.is_some() => crate::bake::mars::find(seed, n, hash).or_else(|| Some(self.get(seed, n)).filter(|m| m.hash == hash)).or_else(|| Some(self.at(0).get(seed, n)).filter(|m| m.hash == hash)),
             s if s == Stage::TERRA => crate::bake::for_hash(seed, n, hash),
             s if s == Stage::LUNA => crate::bake::luna::for_hash(seed, n, hash),
             _ => Some(self.get(seed, n)).filter(|m| m.hash == hash),
@@ -326,11 +344,11 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         // a planet's crust (`bake::mars`) reads its surface's age; no other bake does
         let planet = r.stages.as_ref().is_some_and(|s| s[0] == Stage::Crust) && parent.is_none() && !icy;
         let planet = match (planet, r.age.unwrap_or(1.0)) {
-            (true, a) if a > 0.0 && a <= 1.0 => Some(Planet { name: r.name.clone(), age: a, icy: None }),
+            (true, a) if a > 0.0 && a <= 1.0 => Some(Planet { name: r.name.clone(), age: a, icy: None, cones: false }),
             (true, a) => return Err(format!("body '{}': age {a} is the share of the craters its surface has collected, over 0 and at most 1", r.name)),
             (false, _) if r.age.is_some() => return Err(format!("body '{}': age is read only by a planet's crust (stages starting with 'crust' on a body that circles the sun)", r.name)),
             // kept by its row's name and hash as a planet's map is (`mars::file`), baked on ice
-            _ if icy => Some(Planet { name: r.name.clone(), age: 1.0, icy: Some(0.0) }),
+            _ if icy => Some(Planet { name: r.name.clone(), age: 1.0, icy: Some(0.0), cones: false }),
             _ => None,
         };
         // the sun at its highest over its equator (`luna::sun_high`): a moon of a body that is not the home sees the
@@ -542,7 +560,7 @@ mod tests {
         }
         assert!(stages("[\"crust\", \"impacts\", \"age\"]").is_err(), "no stage 'age'");
         let ok = planet("stages = [\"crust\", \"impacts\", \"volcanism\", \"erosion\", \"ice\"]\nage = 0.5\n").unwrap();
-        assert_eq!(ok[2].bake.as_ref().unwrap().2, Some(Planet { name: "D".into(), age: 0.5, icy: None }));
+        assert_eq!(ok[2].bake.as_ref().unwrap().2, Some(Planet { name: "D".into(), age: 0.5, icy: None, cones: false }));
         assert_eq!(planet("stages = [\"crust\", \"impacts\"]\n").unwrap()[2].bake.as_ref().unwrap().2.as_ref().map(|p| p.age), Some(1.0), "an age of 1 when not given");
         // a moon's crust is Luna's kind: no age, no planet
         assert_eq!(stages("[\"crust\", \"impacts\"]").unwrap()[1].bake.as_ref().unwrap().2, None);
@@ -558,7 +576,7 @@ mod tests {
         assert_eq!(m.n / crate::world::CS, 104, "13 x 8 chunks, as Luna's 52 are 13 x 4");
         let b = m.bake.as_ref().unwrap();
         assert_eq!(b.0, [Stage::Crust, Stage::Impacts, Stage::Volcanism, Stage::Erosion, Stage::Ice]);
-        assert_eq!(b.2, Some(Planet { name: "Mars".into(), age: 1.0, icy: None }));
+        assert_eq!(b.2, Some(Planet { name: "Mars".into(), age: 1.0, icy: None, cones: false }));
         assert_eq!(b.version(), crate::bake::mars::VERSION);
         assert_eq!((m.makeup.kind, m.makeup.iron, m.makeup.heat, m.makeup.density), (Kind::Rocky, 0.5, 1.0, [2900.0, 3500.0, 6700.0]));
         assert_eq!(m.sun, Some(1.5 * 23500.0 * 1.85), "1.5 AU in its radii");
@@ -597,7 +615,7 @@ mod tests {
         assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328, 67584, 1536]);
         let b = c.bake.as_ref().unwrap();
         assert_eq!(b.0, [Stage::Crust, Stage::Impacts, Stage::Ice]);
-        assert_eq!(b.2, Some(Planet { name: "Callisto".into(), age: 1.0, icy: Some(b.1) }));
+        assert_eq!(b.2, Some(Planet { name: "Callisto".into(), age: 1.0, icy: Some(b.1), cones: false }));
         assert_eq!(b.version(), crate::bake::icy::VERSION);
         assert!(b.file(1, 1536).to_str().unwrap().contains("-callisto-"), "named by its row: {:?}", b.file(1, 1536));
         // the sun at its highest over its equator: the orbit's tilt and the sun's disc, five times smaller than from

@@ -67,19 +67,20 @@ pub(crate) fn new_world_args(w: &NewWorld, clock: i32, taken: impl Fn(&str) -> b
 
 /// What a new world of the arguments `then` bakes: each baked body of its generation (`gen=`, `mantle=`; the
 /// newest by default) at its columns (planet= and moon=, `bodies::sizes`), with the seed; None without seed= and planet=.
-pub(crate) fn world_bakes(then: &[String]) -> Option<Vec<(engine::bodies::Bake, i32, i32)>> {
+pub(crate) fn world_bakes(then: &[String]) -> Option<(u8, Vec<(engine::bodies::Bake, i32, i32)>)> {
     let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
     let (seed, n) = (num("seed")?, num("planet")?);
-    let rows = engine::bodies::of(server::gen_arg(num("mantle").unwrap_or(1), num("gen").unwrap_or(-1)));
+    let gen = server::gen_arg(num("mantle").unwrap_or(1), num("gen").unwrap_or(-1));
+    let rows = engine::bodies::of(gen);
     let sizes = engine::bodies::sizes(rows, n, num("moon").unwrap_or(engine::bodies::moon_columns(n)));
-    Some(sizes.into_iter().zip(rows).filter_map(|(k, r)| r.bake.clone().map(|b| (b, seed, k))).collect())
+    Some((gen, sizes.into_iter().zip(rows).filter_map(|(k, r)| r.bake.clone().map(|b| (b, seed, k))).collect()))
 }
 
 /// Only the bodies of the world's generation are baked: a generation 4 world bakes no Mars.
 #[test]
 fn a_new_world_bakes_the_bodies_of_its_generation() {
     let args = |more: &[&str]| ["seed=3", "planet=6144"].iter().chain(more).map(|s| s.to_string()).collect::<Vec<_>>();
-    let ks = |a: &[&str]| world_bakes(&args(a)).unwrap().iter().map(|b| b.2).collect::<Vec<_>>();
+    let ks = |a: &[&str]| world_bakes(&args(a)).unwrap().1.iter().map(|b| b.2).collect::<Vec<_>>();
     assert_eq!(ks(&[]), [6144, 1664, 3328, 1536], "Terra, Luna, Mars and the giant's icy moon");
     assert_eq!(ks(&["gen=6"]), [6144, 1664, 3328], "Terra, Luna and Mars: the giant bakes nothing");
     assert_eq!(ks(&["gen=4"]), [6144, 1664], "Terra and Luna");
@@ -905,10 +906,10 @@ impl App {
     /// title screen drawing the bar, then the game starts again with `then`.
     pub(crate) fn bake_then(&mut self, then: Vec<String>) {
         match world_bakes(&then) {
-            Some(todo) if todo.iter().any(|(b, seed, k)| !b.file(*seed, *k).exists()) => {
+            Some((gen, todo)) if todo.iter().any(|(b, seed, k)| !b.file_at(*seed, *k, gen).exists()) => {
                 self.loading = Some(Loading::start(self.again_args(then), "Making the universe", move || {
                     for (b, seed, k) in todo {
-                        drop(b.get(seed, k));
+                        drop(b.get_at(seed, k, gen));
                     }
                     Ok(())
                 }));
@@ -1051,14 +1052,15 @@ impl Loading {
                 first = link.rx.recv_timeout(Duration::from_secs(10));
             }
             match first {
-                Ok(ToClient::Welcome { seed, bodies, .. }) if bodies.first().is_some_and(|b| b.1.is_some()) => {
+                Ok(ToClient::Welcome { seed, bodies, gen, .. }) if bodies.first().is_some_and(|b| b.1.is_some()) => {
                     engine::bake::report(engine::net::DOWNLOAD, 0.0);
                     // (a map that could not be written would send the joining run back here, round and round)
                     let mut files = Vec::new();
                     for (&(n, h), row) in bodies.iter().zip(engine::bodies::BODIES.iter()) {
                         let (Some(h), Some(b)) = (h, &row.bake) else { continue };
                         engine::net::fetch_map(&mut link, seed, n, h)?;
-                        files.push(b.file(seed, n));
+                        // (kept under its generation's version: an older world's map is not today's file)
+                        files.push(b.file_at(seed, n, gen));
                     }
                     match files.iter().find(|f| !f.exists()) {
                         Some(f) => Err(format!("the server's map could not be kept in {}", f.display())),

@@ -7,13 +7,15 @@ impl Server {
     pub(super) fn send_animals(&mut self, age: u64) {
         let herds = &self.herds;
         let world = &self.world;
+        // (the awake ones listed once: every client walked every site ever met)
+        let awake: Vec<_> = herds.awake_animals(age).collect();
         for c in &mut self.clients {
             let me = c.phys.pos;
             let on = world.frame_at(me) == 0;
             let mut seen = Vec::new();
-            let mut here: std::collections::HashSet<u32> = Default::default();
-            for a in herds.awake_animals(age).filter(|a| on && (a.p.pos - me).length() < engine::net::SEE) {
-                here.insert(a.id);
+            let mut here: engine::world::FxMap<u32, ()> = Default::default();
+            for a in awake.iter().filter(|a| on && (a.p.pos - me).length() < engine::net::SEE) {
+                here.insert(a.id, ());
                 let v = engine::net::Animal { id: a.id, kind: a.kind, pos: a.p.pos.to_array(), fwd: a.p.fwd.as_vec3().to_array(), act: a.mind as u8, call: a.call };
                 let old = c.animals.get(&a.id);
                 if old.is_none_or(|o| o.act != v.act || o.call != v.call || (DVec3::from_array(o.pos) - a.p.pos).length() > 0.02) {
@@ -21,7 +23,7 @@ impl Server {
                     seen.push(v);
                 }
             }
-            let mut gone: Vec<u32> = c.animals.keys().copied().filter(|id| !here.contains(id)).collect();
+            let mut gone: Vec<u32> = c.animals.keys().copied().filter(|id| !here.contains_key(id)).collect();
             gone.sort_unstable();
             for id in &gone {
                 c.animals.remove(id);
