@@ -410,6 +410,13 @@ impl crate::world::World {
         out
     }
 
+    /// `step_snow`'s last part alone: the ice and rock the liquids hold short of a block, shown (a second with no
+    /// snow to step still shows a pond freezing or a lava crust growing).
+    pub fn show_frozen(&mut self) {
+        let shown = self.shown_layers();
+        self.snow.show(shown);
+    }
+
     /// What the liquids hold frozen short of a block, in eighths: ice on stored water (its top the water's) and each
     /// fluid's held crust (`Liquids::crust`, its row's `freeze` block on the floor it froze at).
     pub fn shown_layers(&self) -> Vec<(Col, Seen)> {

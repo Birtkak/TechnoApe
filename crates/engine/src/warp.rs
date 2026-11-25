@@ -44,7 +44,12 @@ pub fn at(a: f64, b: f64) -> ([f64; 2], [[f64; 2]; 2]) {
 /// `at`'s (da, db) alone, to the same bits: what every map read of a column asks (some twenty a column of a
 /// height tile), without the four derivatives only `unwarp`'s Newton steps use.
 pub fn value(a: f64, b: f64) -> [f64; 2] {
-    let t = &*TABLE;
+    read(&TABLE, a, b)
+}
+
+/// A table of `N` x `N` pairs read at face point (a, b) as `at` reads the warp's: bilinear on |a| and |b|, the
+/// signs put back, held past the face's edge.
+fn read(t: &[[f64; 2]], a: f64, b: f64) -> [f64; 2] {
     let h = (N - 1) as f64 * 0.5;
     let (sa, sb) = (if a < 0.0 { -1.0 } else { 1.0 }, if b < 0.0 { -1.0 } else { 1.0 });
     let (x, y) = ((a.abs().min(1.0) + 1.0) * h, (b.abs().min(1.0) + 1.0) * h);
@@ -62,11 +67,37 @@ pub fn warp(a: f64, b: f64, w: f64) -> (f64, f64) {
     (a + w * v[0], b + w * v[1])
 }
 
-/// The (a, b) that `warp` moves to (ta, tb): Newton on the bilinear cell from one fixed-point step, to 1e-14.
-/// (Plain fixed-point steps crawl near a corner, where the table's slope is about -0.75.)
+/// The whole warp's inverse at the table's points, as what it moves each by: `unwarp`'s first guess, some 1e-5
+/// of a face from the answer where one fixed-point step was 1e-2 to 1e-3, so two Newton steps do where four did
+/// (`locate` is most of what the conformal grid costs the physics: 147 ns against the old grid's 38, `grid_cost`).
+static INVERSE: LazyLock<Vec<[f64; 2]>> = LazyLock::new(|| {
+    let at = |k: usize| -1.0 + 2.0 * k as f64 / (N - 1) as f64;
+    (0..N * N)
+        .map(|p| {
+            let (ta, tb) = (at(p / N), at(p % N));
+            let v = value(ta, tb);
+            let (a, b) = newton(ta, tb, 1.0, ta - v[0], tb - v[1]);
+            [a - ta, b - tb]
+        })
+        .collect()
+});
+
+/// The (a, b) that `warp` moves to (ta, tb): Newton on the bilinear cell, to 1e-14, from the inverse's own table at
+/// the whole warp (else from one fixed-point step; plain fixed-point steps crawl near a corner, where the table's
+/// slope is about -0.75). A function of its arguments alone: no state, the same bits on every thread and machine.
 pub fn unwarp(ta: f64, tb: f64, w: f64) -> (f64, f64) {
-    let (v, _) = at(ta, tb);
-    let (mut a, mut b) = (ta - w * v[0], tb - w * v[1]);
+    let (a, b) = if w == 1.0 {
+        let g = read(&INVERSE, ta, tb);
+        (ta + g[0], tb + g[1])
+    } else {
+        let v = value(ta, tb);
+        (ta - w * v[0], tb - w * v[1])
+    };
+    newton(ta, tb, w, a, b)
+}
+
+/// `unwarp`'s Newton steps from (a, b).
+fn newton(ta: f64, tb: f64, w: f64, mut a: f64, mut b: f64) -> (f64, f64) {
     for _ in 0..40 {
         let (v, d) = at(a, b);
         let (ra, rb) = (a + w * v[0] - ta, b + w * v[1] - tb);

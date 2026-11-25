@@ -5040,6 +5040,8 @@ fn live_snow_is_sent_saved_reloaded_and_replays_to_the_same_hash() {
     let start = || {
         let (tx, rx) = channel();
         let mut s = Server::baked(1536, 32, 7, rx);
+        // (the snow's own mechanics: its second on every live column, whatever the air)
+        s.snow_always = true;
         let (c, sv) = local();
         tx.send(sv).unwrap();
         for _ in 0..TICK_HZ as u64 + 1 {
@@ -5098,6 +5100,8 @@ fn live_snow_is_sent_saved_reloaded_and_replays_to_the_same_hash() {
 fn a_save_keeps_the_snow_short_of_a_unit() {
     let (tx, rx) = channel();
     let mut s = Server::baked(1536, 32, 7, rx);
+    // (the snow's own mechanics: its second on every live column, whatever the air)
+    s.snow_always = true;
     let (_c, sv) = local();
     tx.send(sv).unwrap();
     for _ in 0..TICK_HZ as u64 + 1 {
@@ -5119,6 +5123,8 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     use engine::clutter::{thing_at, VEGETATION};
     let (tx, rx) = channel();
     let mut s = Server::baked(1536, 32, 7, rx);
+    // (the snow's own mechanics: its second on every live column, whatever the air)
+    s.snow_always = true;
     let (c, sv) = local();
     tx.send(sv).unwrap();
     for _ in 0..TICK_HZ as u64 + 1 {
@@ -5188,4 +5194,47 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     assert!(drain(&c).iter().any(|m| matches!(m, ToClient::Unedit(v) if v.contains(&green_b))), "the client is told the cell is generation's again");
     assert_eq!((s.world.block(green_b), s.world.edit(green_b), plant(&s, green_b)), (AIR, None, grows), "melted back, the same plant there");
     assert_eq!((s.world.block(lit_b), s.world.snow.cols[&lit].units), (torch, 0), "the torch still there, its snow melted");
+}
+
+/// Where it cannot snow (no snow held, none lying in the air's cells round any player, the air there over
+/// freezing) the snow's second is passed over: no live columns are made, and the rest of the world is the one
+/// the full step leaves, to the hash (bare snow is in no hash: this proves a warm second does nothing else, not
+/// that a skipped stretch and then a cold one ends as the full step would; it does not, see `snow_due`).
+/// It was 54,000 columns a second with 50 players, 5 ms of one tick in twenty.
+#[test]
+fn the_snows_second_is_passed_over_in_warm_air_to_the_same_hash() {
+    let run = |always: bool| {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(1536, 32, 7, rx);
+        s.snow_always = always;
+        let (_c, sv) = local();
+        tx.send(sv).unwrap();
+        for _ in 0..3 * TICK_HZ as u64 + 1 {
+            s.tick();
+        }
+        (s.hash(), s.world.snow.cols.len())
+    };
+    let (slow, fast) = (run(true), run(false));
+    assert_eq!(slow.1, 33 * 33, "the reference steps the live square");
+    assert_eq!(fast, (slow.0, 0), "the same world, and no column stepped");
+}
+
+/// A player sent to the spawn (a new one, a respawn with no home, a body let go) stands on what is there now:
+/// the soak of 2026-11-25 put a bot that died back at the spawn inside a leaf block another bot had placed there.
+#[test]
+fn the_spawn_is_never_inside_what_was_built_on_it() {
+    let (mut s, _links) = server_with(1);
+    let at = s.spawn();
+    assert!(!phys::blocked(&s.world, at), "the spawn as made is free");
+    let up = phys::up(&s.world, at);
+    for k in 0..2 {
+        let b = s.world.block_at(at + up * (0.5 + k as f64));
+        s.world.set_block(b, 3);
+    }
+    assert!(phys::blocked(&s.world, at), "built on");
+    let now = s.spawn();
+    assert!(!phys::blocked(&s.world, now), "standing in what was built on the spawn");
+    // /goto terra goes there too
+    assert_eq!(s.goto("terra").map(|g| g.0), Some(now));
+    assert!((now - at).dot(up) > 1.9 && (now - at).reject_from(up).length() < 0.5, "on top of it: {:?} from {:?}", now, at);
 }

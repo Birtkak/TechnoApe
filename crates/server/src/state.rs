@@ -89,6 +89,7 @@ impl Server {
             sky: Vec::new(),
             sky_at: None,
             force: None,
+            snow_always: false,
             piles: BTreeMap::new(),
             piles_changed: Vec::new(),
             item_made: BTreeMap::new(),

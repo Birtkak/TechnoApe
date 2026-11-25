@@ -56,7 +56,8 @@ impl Server {
                 Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
             }
             _ => match engine::bodies::find(to).filter(|&i| i < w.bodies.len())? {
-                0 => Some((w.bodies[0].spawn_point(), w.bodies[0].spawn.any_orthonormal_vector())),
+                // (the spawn as `spawn` gives it: on top of what was built there)
+                0 => Some((self.spawn(), w.bodies[0].spawn.any_orthonormal_vector())),
                 // the day side, the sun 45 degrees up: an airless night is black (on a gas body, its cloud tops:
                 // `Body::height`, step 6a)
                 i => {
@@ -518,10 +519,12 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         }
     }
 
-    /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark.
+    /// Where a new player's feet go: on the surface at the planet's +y pole, like the client's benchmark. Where
+    /// something stands there now (a block placed on the spawn, a tree, a heap), on top of it: the open ground
+    /// of that column (`phys::open_ground`). The spawn as made is the same point as ever, to the bit.
     pub(super) fn spawn(&self) -> DVec3 {
-        let b = &self.world.bodies[0];
-        b.spawn_point()
+        let at = self.world.bodies[0].spawn_point();
+        if phys::blocked(&self.world, at) { phys::open_ground(&self.world, at).unwrap_or(at) } else { at }
     }
 
     /// The server's clock in seconds: ticks, so a replay decides as the run did.
