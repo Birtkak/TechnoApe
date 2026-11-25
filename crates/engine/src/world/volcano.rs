@@ -150,15 +150,15 @@ impl Body {
     pub(super) fn bare_cone(&self, face: u8, i: i32, j: i32) -> bool {
         self.craters().iter().any(|c| c.heat > 0.0 && c.face == face && (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1) < BARE * c.v.crater as f64)
     }
-    /// The live volcano whose hot ground direction d is on (draft decision 2026-11-25, hot ground): its crater and
-    /// its bare upper cone (`bare_cone`, where no plant grows either); None elsewhere, and at once on a body with no
-    /// live volcano. No animal is made, stands or walks there (`herds`).
+    /// The live volcano whose hot ground direction d is on (draft decision 2026-11-25, hot ground; from generation
+    /// `HOT_GROUND`): its crater and its bare upper cone, within `BARE` crater radii of its middle in metres on the
+    /// ground (by direction, so the same on the conformal grid and over a face's seam); None elsewhere, and in a
+    /// world of an earlier generation. No animal is made, stands or walks there (`herds`).
     pub fn hot_ground(&self, d: DVec3) -> Option<&Crater> {
-        if !self.craters().iter().any(|c| c.heat > 0.0) {
+        if self.gen < HOT_GROUND {
             return None;
         }
-        let (f, i, j) = self.locate(d);
-        self.craters().iter().find(|c| c.heat > 0.0 && c.face as usize == f && (i - c.at.0).hypot(j - c.at.1) < BARE * c.v.crater as f64)
+        self.craters().iter().find(|c| c.heat > 0.0 && (d - c.top.normalize()).length() * c.top.length() < BARE * c.v.crater as f64)
     }
     /// The water tiles (`liquid::Col::tile`) of body `body` (this one) that hold a live crater's lake: what a client
     /// draws as generated lava, as it draws stored fluid.

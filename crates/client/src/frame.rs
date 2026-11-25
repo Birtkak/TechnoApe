@@ -998,8 +998,8 @@ impl App {
         // inside lava (bug 2026-11-24_18-47-07): its own glow close around the eye and nothing through it, thick by
         // a metre; told to the composite by the fog's sign (post.wgsl). What is drawn over the composite is left
         // out below: the fluids' surfaces from inside, glass, the clouds and the aurora
-        let in_lava = self.world.lava_at(p.pos);
-        let fog = if in_lava { -LAVA_FOG } else if self.world.water_surface(p.pos).is_some() { 0.09 } else { 0.0 };
+        let fog = eye_fog(&self.world, p.pos);
+        let in_lava = fog < 0.0;
         let deep_light = 0.04 + 0.96 * day;
         let tune = (
             self.settings.on(S::Bounce),
@@ -1739,6 +1739,14 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
 /// (`Globals::sky` w), the home's sea radius and the sky's clock in the hour. Body 0 is the home.
 /// The fog per metre with the eye inside lava: the world is gone within a metre (98 % at 1 m).
 const LAVA_FOG: f32 = 4.0;
+/// The fog per metre with the eye under water (ADR 0071): thick by 12 m.
+const WATER_FOG: f32 = 0.09;
+
+/// The fog of the fluid the eye at world point `eye` is in, per metre: water's, lava's as a negative number (the
+/// composite's sign for its glow, post.wgsl), 0 in the air.
+pub(crate) fn eye_fog(world: &World, eye: DVec3) -> f32 {
+    if world.lava_at(eye) { -LAVA_FOG } else if world.water_surface(eye).is_some() { WATER_FOG } else { 0.0 }
+}
 
 pub(crate) fn aurora_post(world: &World, scale: f64, day: f32, clock: f64) -> [f32; 4] {
     let a = engine::sky::aurora(world.field(0) * scale);
@@ -1956,6 +1964,21 @@ mod tests {
             assert_eq!(d.base_vertex, at);
             at += (d.index_count / 6 * 4) as i32;
         }
+    }
+
+    /// Bug 2026-11-24_18-47-07 and its review: the frame's fog is lava's (negative, thick by a metre) with the eye
+    /// in lava, water's under water and none in the air.
+    #[test]
+    fn the_eye_in_lava_gets_lavas_fog_and_in_water_waters() {
+        let mut w = World::new(256, 32, 1);
+        let b = w.bodies[0].clone();
+        let (lava, up) = crate::weather::tests::lava_at_spawn(&mut w, 0);
+        assert_eq!(eye_fog(&w, lava), -LAVA_FOG);
+        assert!(1.0 - (-LAVA_FOG).exp() > 0.98, "the world is gone within a metre");
+        assert_eq!(eye_fog(&w, lava + up * 3.0), 0.0, "in the air over it");
+        let sea = b.layer_r(b.sea.unwrap());
+        let d = (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) }).find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+        assert_eq!(eye_fog(&w, b.centre + d * (sea - 1.0)), WATER_FOG);
     }
 }
 

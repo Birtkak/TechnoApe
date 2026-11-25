@@ -5264,3 +5264,40 @@ fn a_player_coming_back_where_someone_built_since_stands_free() {
     assert!((now - left).dot(up) > 1.9 && (now - left).reject_from(up).length() < 0.5, "on top of it: {now:?} from {left:?}");
     assert_eq!(DVec3::from_array(s.clients[1].player.pos), now, "the others are told the same place");
 }
+
+/// The review of the volcano fixes: `/spawn <creature> live` onto lava (or a live volcano's hot ground) says so,
+/// not "(water)". A world of the generation of hot ground; before it the animal is made there, as ever.
+#[test]
+fn spawn_live_onto_lava_says_so() {
+    use engine::world::HOT_GROUND;
+    for gen in [HOT_GROUND - 1, HOT_GROUND] {
+        let (tx, rx) = channel();
+        let mut s = Server::baked_warp(256, 64, 3, 0.0, gen, rx);
+        let (l, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        l.send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        // a pit a cell deep three metres ahead, a cell of lava in it
+        let c = &s.clients[0];
+        let d = (c.phys.pos + c.phys.fwd * 3.0 - s.world.bodies[0].centre).normalize();
+        let top = s.world.air_over_ground(0, d);
+        let pit = Block { pos: top.pos - glam::IVec3::Z, ..top };
+        s.world.set_block(pit, AIR);
+        s.world.regap(pit);
+        {
+            let engine::world::World { bodies, edits, water, sky, time, .. } = &mut s.world;
+            let g = engine::world::Solid::at(bodies, edits, sky, *time);
+            assert!(water.pour_kind(&g, engine::world::World::col(pit), pit.pos.z, engine::liquid::U, engine::fluids::FLUIDS.now().kind("lava").unwrap()));
+        }
+        drain(&l);
+        l.send(ToServer::Chat("/spawn hare live".into()));
+        s.tick();
+        let said = chats(&drain(&l));
+        if gen < HOT_GROUND {
+            assert!(said.iter().any(|t| t.starts_with("a hare (animal")), "generation {gen}: {said:?}");
+        } else {
+            assert!(said.iter().any(|t| t.contains("lava")) && !said.iter().any(|t| t.contains("(water)")), "generation {gen}: {said:?}");
+        }
+    }
+}

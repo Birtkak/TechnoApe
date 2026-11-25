@@ -191,14 +191,28 @@ impl World {
     }
 
     /// Whether rain or snow falling at world point p boils off (draft decision 2026-11-25, hot ground): p is in a
-    /// glowing fluid (lava, stored or generated), so none lands on lava, or anywhere over a live crater's lake,
-    /// however high, so none falls through the hot air over it.
+    /// glowing fluid (lava, stored or generated) or over lava lying on the open ground of its column, so none lands
+    /// on lava, or anywhere over a live crater's lake, however high, so none falls through the hot air over it.
+    /// The lake by the lava that is there now, at its
+    /// surface's level in p's column (none where it was built over or is gone), and by p's distance from the
+    /// crater's middle (so over a face's seam too).
     /// shortcut: lava alone; rock near a chamber reads over 100 C at its top cell while the air on it is cool, so
     /// the ground's own heat is not asked until the heat field takes the surface as a boundary (`volcano::BARE`).
     pub fn boils_rain(&self, p: DVec3) -> bool {
-        let c = self.block_at(p);
-        self.bodies[c.body as usize].craters().iter().any(|k| k.face == c.face && k.lake_cols.binary_search(&(c.pos.x, c.pos.y)).is_ok())
-            || self.fluid_at(p).is_some_and(|k| crate::fluids::FLUIDS.now().get(k).glows())
+        let bi = self.block_at(p).body as usize;
+        let b = &self.bodies[bi];
+        let d = (p - b.centre).normalize();
+        let glows = |q: DVec3| self.fluid_at(q).is_some_and(|k| crate::fluids::FLUIDS.now().get(k).glows());
+        // a live crater's lake: by the lava there now at its surface's level, whatever lies under a roof built on it
+        let near = |k: &&Crater| k.lake.is_some() && (d - k.top.normalize()).length() * k.top.length() < k.v.crater as f64 + 1.0;
+        if let Some(k) = b.craters().iter().find(near) {
+            let at = b.centre + d * b.layer_r(k.lake.expect("found with one") as f64 - 0.5);
+            return glows(p) || !BLOCKS.solid(self.block(self.block_at(at))) && glows(at);
+        }
+        // elsewhere: in lava, or over lava lying on the ground of p's column (a drop made high over it is not yet
+        // in the lava it will land in). shortcut: the ground as `air_over_ground` finds it from the terrain up, so
+        // lava under a roof someone built keeps the rain off the roof; from the sky down when roofs over lava are built
+        glows(p) || glows(b.centre + d * (b.layer_r(self.air_over_ground(bi, d).pos.z as f64) + 0.02))
     }
 
     /// The fluid at world point p, if p is in one (stored, or as generation gives it).
@@ -583,12 +597,22 @@ mod tests {
         assert!(w.lava_at(b.centre + d * (bed + 0.1)), "the lake over its bed");
         assert!(w.boils_rain(b.centre + d * (bed + 0.1)), "onto the lake's bed, through the lava");
         assert!(w.boils_rain(b.centre + d * (b.layer_r(c.lake.unwrap() as f64) + 30.0)), "in the air 30 m over the lake");
+        // the review: by the lava that is there now, not the lake as baked: a column of the lake built over with
+        // stone down through its surface has rain again
+        let mut roofed = volcano_world();
+        for z in c.lake.unwrap() - 3..c.lake.unwrap() + 1 {
+            let cell = Block { body: 0, face: c.face, pos: IVec3::new(i, j, z) };
+            roofed.set_block(cell, BLOCKS.id("stone"));
+            roofed.regap(cell);
+        }
+        assert!(!roofed.boils_rain(b.centre + d * (b.layer_r(c.lake.unwrap() as f64) + 30.0)), "over a lake column filled with stone");
         let land = b.centre + b.spawn * (b.layer_r(b.first_air(b.height(b.spawn)) as f64) + 0.1);
         assert!(!w.boils_rain(land), "on the land at the spawn");
         // lava poured on cold ground: none onto it, rain beside it
         let mut w = lava_world();
         let (at, top) = lava(&mut w, 0..3, 0..3, 2);
         assert!(w.boils_rain(eye(&w, Block { pos: IVec3::new(at.pos.x, at.pos.y, top - 1), ..at }, 1, 1, 0.1)), "onto poured lava");
-        assert!(!w.boils_rain(eye(&w, at, 30, 30, 0.1)), "30 columns from it");
+        assert!(w.boils_rain(eye(&w, at, 1, 1, 14.0)), "14 m over poured lava, where a drop is made");
+        assert!(!w.boils_rain(eye(&w, at, 30, 30, 0.1)) && !w.boils_rain(eye(&w, at, 30, 30, 14.0)), "30 columns from it");
     }
 }

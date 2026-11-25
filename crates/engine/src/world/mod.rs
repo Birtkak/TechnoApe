@@ -27,7 +27,7 @@ pub use water::*;
 mod generate;
 pub use generate::*;
 mod volcano;
-pub use volcano::{Chamber, Crater, Stage};
+pub use volcano::{Chamber, Crater, Stage, BARE};
 mod felt;
 pub use felt::{operative, ray_dir, Felt, Rays, FRAME_PROBES, RAYS, RAY_REACH};
 mod ground;
@@ -130,6 +130,11 @@ pub const GEOTHERM: u8 = 11;
 /// and whose springs start streams, and the aquifer a well or a cave trades with (`liquid::Liquids::seep`). A world of
 /// an earlier generation plays on the map of version 9 and stays dry, as before.
 pub const GROUND_WATER: u8 = 12;
+/// The generation of hot ground (draft decision 2026-11-25, plants-and-creatures.md "Hot ground"): no animal is made,
+/// stands or walks on a live volcano's hot ground or on lava, and one found there flees or dies (`herds`,
+/// `Body::hot_ground`). A world of an earlier generation keeps its herds as they were, on the cone too, so its
+/// recordings replay to the bit. (Its own number: `GENERATION` reaches it with the branch that brings 14.)
+pub const HOT_GROUND: u8 = 14;
 /// The generation of the conformal grid (ADR 0131, the developer's 2026-11-15 choice, the default from 2026-11-24):
 /// every body's block grid is warped by the table (`Body::warp` 1), so block tops are square but near the cube's 8
 /// corners. A world of an earlier generation keeps the equi-angular grid to the bit (`grid_warp`).

@@ -301,8 +301,57 @@ impl Fall {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// The top cell of the ground dug out and filled with lava in every column within `reach` columns of the
+    /// spawn's on the home of `w`: a point in the lava of the spawn's column, and up there.
+    pub(crate) fn lava_at_spawn(w: &mut engine::world::World, reach: i32) -> (DVec3, DVec3) {
+        use engine::world::{Block, Solid, World};
+        let b = w.bodies[0].clone();
+        let (f, i, j) = b.locate(b.spawn);
+        let (f, i, j) = (f as u8, i as i32, j as i32);
+        let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
+        let cell = |di: i32, dj: i32| Block { body: 0, face: f, pos: glam::IVec3::new(i + di, j + dj, b.first_air(b.col_height(f, i + di, j + dj)) - 1) };
+        for (di, dj) in (-reach..=reach).flat_map(|di| (-reach..=reach).map(move |dj| (di, dj))) {
+            let c = cell(di, dj);
+            w.set_block(c, engine::blocks::AIR);
+            w.regap(c);
+            let World { bodies, edits, water, sky, time, .. } = w;
+            let g = Solid::at(bodies, edits, sky, *time);
+            assert!(water.pour_kind(&g, World::col(c), c.pos.z, engine::liquid::U, lava));
+        }
+        let mid = w.block_centre(cell(0, 0));
+        let up = (mid - b.centre).normalize();
+        assert!(w.lava_at(mid - up * 0.3), "lava in the spawn's column");
+        (mid - up * 0.3, up)
+    }
+
+    /// Bug 2026-11-24_18-46-31 and its review: `Fall::drops` itself makes no drop that would land on lava. In heavy
+    /// rain over a field of lava none is alive after a second of frames; over the same ground without lava many are.
+    #[test]
+    fn no_drop_is_made_over_lava() {
+        let rain = engine::weather::Here { temp: 10.0, rain: 8.0, cover: 1.0, wind: [0.0, 0.0] };
+        let made = |lava: bool| {
+            let mut w = engine::world::World::new(256, 32, 1);
+            let b = w.bodies[0].clone();
+            let eye = if lava {
+                let (at, up) = lava_at_spawn(&mut w, 24);
+                at + up * 2.0
+            } else {
+                b.centre + b.spawn * (b.height(b.spawn) + 2.0)
+            };
+            let mut fx = crate::fx::Fx::new(true, 4096, 1.0, 5);
+            let mut fall = Fall::default();
+            for _ in 0..10 {
+                fall.drops(&mut fx, &w, eye, &rain, 2, 0.1);
+            }
+            fx.live()
+        };
+        let (dry, over_lava) = (made(false), made(true));
+        assert!(dry > 100, "rain on the plain ground: {dry} drops");
+        assert_eq!(over_lava, 0, "drops made over lava");
+    }
 
     /// A step's columns are blended in from the last over the grid's step, the winds through their sign, and a
     /// delta changes only the columns it names.
