@@ -412,6 +412,75 @@ const EPS: f32 = 1e-4;
 /// hollow under the sea level inland is a basin: it fills to a lake at its spill point.
 pub fn oceans(g: &Grid, h: &[f32], sea: f32) -> Vec<bool> {
     let n = g.n();
+    let first = components(g, |c| h[c] < sea);
+    let mut count = vec![0u32; n];
+    first.iter().filter(|&&f| f != NONE).for_each(|&f| count[f as usize] += 1);
+    first.par_iter().map(|&f| f != NONE && count[f as usize] as usize * 500 >= n).collect()
+}
+
+/// The connected groups of the cells where `inside` holds: per cell the lowest cell of its group (NONE
+/// outside). Union-find, the lower cell the root: each face on its own thread along its rows (a cell's
+/// neighbours inside its face are at fixed steps), then the seams between the faces.
+fn components(g: &Grid, inside: impl Fn(usize) -> bool + Sync) -> Vec<u32> {
+    let (n, m) = (g.n(), g.m);
+    let mut up: Vec<u32> = (0..n as u32).collect();
+    /// The root of `c` in `up`, whose first entry is cell `base`.
+    fn find(up: &mut [u32], base: u32, mut c: u32) -> u32 {
+        while up[(c - base) as usize] != c {
+            up[(c - base) as usize] = up[(up[(c - base) as usize] - base) as usize];
+            c = up[(c - base) as usize];
+        }
+        c
+    }
+    up.par_chunks_mut(m * m).enumerate().for_each(|(f, up)| {
+        let base = (f * m * m) as u32;
+        for j in 0..m {
+            for i in 0..m {
+                let k = j * m + i;
+                if !inside(base as usize + k) {
+                    up[k] = NONE;
+                    continue;
+                }
+                // the neighbours before it: to the left, and the three in the row under
+                let lower = [(i > 0).then(|| k - 1), (j > 0 && i > 0).then(|| k - m - 1), (j > 0).then(|| k - m), (j > 0 && i + 1 < m).then(|| k - m + 1)];
+                for o in lower.into_iter().flatten() {
+                    if up[o] != NONE {
+                        let (a, b) = (find(up, base, base + k as u32), find(up, base, base + o as u32));
+                        up[(a.max(b) - base) as usize] = a.min(b);
+                    }
+                }
+            }
+        }
+    });
+    for f in 0..6 {
+        for t in 0..m {
+            for (i, j) in [(t, 0), (t, m - 1), (0, t), (m - 1, t)] {
+                let c = g.idx(f, i, j);
+                if up[c as usize] == NONE {
+                    continue;
+                }
+                for o in g.around(c) {
+                    if o as usize / (m * m) != f && up[o as usize] != NONE {
+                        let (a, b) = (find(&mut up, 0, c), find(&mut up, 0, o));
+                        up[a.max(b) as usize] = a.min(b);
+                    }
+                }
+            }
+        }
+    }
+    for c in 0..n as u32 {
+        if up[c as usize] != NONE {
+            // a cell's root is lower than it, and has its own root by now
+            up[c as usize] = up[up[c as usize] as usize];
+        }
+    }
+    up
+}
+
+/// `oceans` by a search from each cell: the reference `oceans` is tested against.
+#[cfg(test)]
+pub fn oceans_ref(g: &Grid, h: &[f32], sea: f32) -> Vec<bool> {
+    let n = g.n();
     let mut ocean = vec![false; n];
     let mut seen = vec![false; n];
     for c0 in 0..n as u32 {
@@ -536,10 +605,78 @@ impl Queue for Buckets {
     }
 }
 
-/// Priority-Flood of one land mass from its coast: fills `w` (with the epsilon) and `lvl` (without),
-/// returns the cells from the coast up.
-/// SAFETY: the caller hands each mass to one thread; its cells and their land neighbours are its own.
+/// `flood_ref`'s result, with only the cells that pour into a hollow in the priority queue (after Zhou et al.
+/// 2016, here with the epsilon). A cell that stands an epsilon over any settled neighbour keeps its own height
+/// whichever neighbour comes first, so the climb out of the sea and out of every lake is a plain breadth-first
+/// walk; a settled cell goes into the queue only when, the walk having stopped, a neighbour is still not
+/// settled (it lies too low to be climbed to), and when it comes out it fills those. The order the reference pops in is the order of (w, cell), since
+/// every cell lies over the one that settled it: sorted at the end.
+/// `w` and `lvl` come in as the ground's height, as `drain` lays them. Heights must stay under 2048, where
+/// an epsilon still moves an f32 (`drain` checks the ground under 1024, which leaves 10 million steps of it).
+/// SAFETY: as `flood_ref`.
 unsafe fn flood<Q: Queue>(mut q: Q, coast: &[u32], g: &Grid, h: &[f32], ws: Shared<f32>, ls: Shared<f32>, ds: Shared<bool>) -> Vec<u32> {
+    unsafe {
+        let mut walk: Vec<u32> = coast.to_vec();
+        coast.iter().for_each(|&c| ds.set(c as usize, true));
+        let (mut order, mut low): (Vec<u64>, Vec<u32>) = (Vec::new(), Vec::new());
+        let mut at = 0;
+        loop {
+            // the walk first: nothing may leave the queue while a cell that could be climbed to is not settled
+            while at < walk.len() {
+                let c = walk[at];
+                at += 1;
+                let wc = ws.get(c as usize);
+                order.push((key(wc) as u64) << 32 | c as u64);
+                let (up, mut pours) = (wc + EPS, false);
+                for o in g.around(c) {
+                    if !ds.get(o as usize) {
+                        if h[o as usize] >= up {
+                            ds.set(o as usize, true);
+                            walk.push(o);
+                        } else {
+                            pours = true;
+                        }
+                    }
+                }
+                if pours {
+                    low.push(c);
+                }
+            }
+            walk.clear();
+            at = 0;
+            // the walk has stopped: a neighbour still unsettled lies too low to climb to (most were only
+            // not reached yet when their cell was passed, and are settled by now)
+            for c in low.drain(..) {
+                if g.around(c).any(|o| !ds.get(o as usize)) {
+                    q.push((key(ws.get(c as usize)) as u64) << 32 | c as u64);
+                }
+            }
+            let Some(x) = q.pop() else { break };
+            let c = x as u32;
+            let (up, lc) = (ws.get(c as usize) + EPS, ls.get(c as usize));
+            debug_assert!(up > ws.get(c as usize));
+            for o in g.around(c) {
+                if !ds.get(o as usize) {
+                    ds.set(o as usize, true);
+                    let ho = h[o as usize];
+                    if ho < up {
+                        ws.set(o as usize, up);
+                        ls.set(o as usize, ho.max(lc));
+                    }
+                    walk.push(o);
+                }
+            }
+        }
+        order.par_sort_unstable();
+        order.into_iter().map(|x| x as u32).collect()
+    }
+}
+
+/// Priority-Flood of one land mass from its coast: fills `w` (with the epsilon) and `lvl` (without),
+/// returns the cells from the coast up. Every cell goes through the queue: `flood`'s reference, and the
+/// way taken when the ground stands too high for `flood`.
+/// SAFETY: the caller hands each mass to one thread; its cells and their land neighbours are its own.
+unsafe fn flood_ref<Q: Queue>(mut q: Q, coast: &[u32], g: &Grid, h: &[f32], ws: Shared<f32>, ls: Shared<f32>, ds: Shared<bool>) -> Vec<u32> {
     unsafe {
         for &c in coast {
             ds.set(c as usize, true);
@@ -582,6 +719,26 @@ impl<T: Copy> Shared<T> {
 /// their first cell, each one's coast in cell order. No water crosses from one mass to another, so each
 /// drains on its own thread.
 fn masses(g: &Grid, ocean: &[bool], coast: &[u32]) -> Vec<Vec<u32>> {
+    let first = components(g, |c| !ocean[c]);
+    // a mass is named by its first cell: numbered in that order
+    let mut index = vec![NONE; g.n()];
+    let mut k = 0u32;
+    for (c, &f) in first.iter().enumerate() {
+        if f == c as u32 {
+            index[c] = k;
+            k += 1;
+        }
+    }
+    let mut seeds = vec![Vec::new(); k as usize];
+    for &c in coast {
+        seeds[index[first[c as usize] as usize] as usize].push(c);
+    }
+    seeds
+}
+
+/// `masses` by a search from each cell: the reference `masses` is tested against.
+#[cfg(test)]
+fn masses_ref(g: &Grid, ocean: &[bool], coast: &[u32]) -> Vec<Vec<u32>> {
     let n = g.n();
     let mut label = vec![NONE; n];
     let mut k = 0u32;
@@ -610,6 +767,11 @@ fn masses(g: &Grid, ocean: &[bool], coast: &[u32]) -> Vec<Vec<u32>> {
 }
 
 pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
+    drain_by(g, h, sea, h.par_iter().any(|v| v.abs() >= 1024.0))
+}
+
+/// `drain`, by the slow flood if `slow` (its reference).
+fn drain_by(g: &Grid, h: &[f32], sea: f32, slow: bool) -> Drainage {
     let n = g.n();
     let ocean = oceans(g, h, sea);
     let mut w: Vec<f32> = h.iter().zip(&ocean).map(|(&v, &o)| if o { sea } else { v }).collect();
@@ -624,10 +786,11 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
             // SAFETY: a mass's cells and their land neighbours belong to it alone; the sea is only read
             // a long coast means a big mass: buckets beat the radix heap there, a small one needs no 2^20 buckets
             unsafe {
-                if coast.len() > 20_000 {
-                    flood(Buckets::new(), coast, g, h, ws, ls, ds)
-                } else {
-                    flood(Radix::new(), coast, g, h, ws, ls, ds)
+                match (slow, coast.len() > 20_000) {
+                    (false, true) => flood(Buckets::new(), coast, g, h, ws, ls, ds),
+                    (false, false) => flood(Radix::new(), coast, g, h, ws, ls, ds),
+                    (true, true) => flood_ref(Buckets::new(), coast, g, h, ws, ls, ds),
+                    (true, false) => flood_ref(Radix::new(), coast, g, h, ws, ls, ds),
                 }
             }
         })
@@ -1033,6 +1196,39 @@ impl Bake {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The drainage by the fast flood and the union-find is the slow one's to the bit: on the crust as the
+    /// plates leave it (flats everywhere), with noise on it (pits everywhere), and as the erosion goes.
+    #[test]
+    fn the_fast_drainage_is_the_slow_one() {
+        let p = Params { volcanoes: false, ..Params::default() };
+        let c = crust(1536, 7, &p);
+        let (g, mut h) = (&c.gc, c.tc.h0.clone());
+        let rough = noise(11, 3);
+        let mut pitted: Vec<f32> = (0..g.n()).map(|c| h[c] + 3.0 * at(&rough, g.d(c as u32), 40.0)).collect();
+        pitted[5] = 1500.0; // too high for the fast flood: the slow one is taken, the same again
+        let mut fields = vec![h.clone(), pitted];
+        for _ in 0..3 {
+            erode(g, &mut h, &c.tc.uplift, &p, 4, p.coarse_dt);
+            fields.push(h.clone());
+        }
+        for (k, h) in fields.iter().enumerate() {
+            let sea = quantile(h, p.ocean_share);
+            assert_eq!(oceans(g, h, sea), oceans_ref(g, h, sea), "field {k}: the seas");
+            let (a, b) = (drain(g, h, sea), drain_by(g, h, sea, true));
+            let coast: Vec<u32> = (0..g.n() as u32).filter(|&c| !a.ocean[c as usize] && g.around(c).any(|o| a.ocean[o as usize])).collect();
+            assert_eq!(masses(g, &a.ocean, &coast), masses_ref(g, &a.ocean, &coast), "field {k}: the masses");
+            let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+            assert!(a.order.len() > g.n() / 10 && a.w.iter().zip(h).any(|(w, h)| w > h), "field {k}: land, and a hollow filled");
+            assert_eq!(bits(&a.w), bits(&b.w), "field {k}: w");
+            assert_eq!(bits(&a.lvl), bits(&b.lvl), "field {k}: lvl");
+            assert_eq!(a.order, b.order, "field {k}: order");
+            assert_eq!(a.recv, b.recv, "field {k}: recv");
+            assert_eq!(a.cells, b.cells, "field {k}: cells");
+            assert_eq!(a.start, b.start, "field {k}: start");
+            assert_eq!(bits(&a.area), bits(&b.area), "field {k}: area");
+        }
+    }
 
     /// The land's relief by numbers, to try values with (RELIEF_N, RELIEF_SEED; HILLS, HILL_M, SHIELD, OLD, KAPPA,
     /// K, MOUNTAIN, EXTRA override the parameters): the heights' quantiles, the relief inside 130 m, the slope.
