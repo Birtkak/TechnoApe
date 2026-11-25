@@ -712,6 +712,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         held_name: (usize::MAX, Instant::now()),
         ground_label: ((usize::MAX, 0, 0, 0), None, Instant::now()),
         spectator: false,
+        person: 0,
         sight_pitch: None,
         looks: Default::default(),
         fx,

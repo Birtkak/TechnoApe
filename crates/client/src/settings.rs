@@ -191,6 +191,7 @@ acts! {
     Chat "chat" "Chat" k(KeyCode::KeyT), "t" "";
     Command "command" "Command" k(KeyCode::Slash), "/" "";
     Overlay "overlay" "Numbers overlay" k(KeyCode::F3), "f3" "";
+    Person "person" "Third person view" k(KeyCode::F5), "f5" "";
     Bug "bug" "Bug report" k(KeyCode::F9), "f9" "";
     WarpUp "warp_up" "Time warp faster" k(KeyCode::Period), "warp+" "";
     WarpDown "warp_down" "Time warp slower" k(KeyCode::Comma), "warp-" "";
@@ -232,7 +233,7 @@ const KEY_GROUPS: &[(&str, &[Act])] = &[
     ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Sprint, Act::Down, Act::RollLeft, Act::RollRight]),
     ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket, Act::Inventory, Act::Pick]),
     ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
-    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Map, Act::Journal, Act::Overlay]),
+    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Map, Act::Journal, Act::Overlay, Act::Person]),
     ("Chat, time and testing", &[Act::Chat, Act::Command, Act::WarpUp, Act::WarpDown, Act::Bug, Act::Playtest]),
 ];
 

@@ -2,6 +2,7 @@
 use super::*;
 
 /// Camera pose for the run at time t (seconds after load).
+#[derive(Clone, Copy)]
 pub(crate) struct Pose {
     pub(crate) pos: DVec3,
     pub(crate) fwd: DVec3,
