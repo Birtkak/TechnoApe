@@ -64,6 +64,15 @@ impl Aquifer {
     /// swing for good (metres after 20,000 sweeps on the 512 and 1536 planets), while plain Gauss-Seidel on this balance (each
     /// cell's outflow grows with its head and falls with its neighbours') only closes in on the rest.
     pub fn solve(&self, omega: f64, tol: f64, max: usize) -> (Vec<f64>, usize) {
+        self.solve_by(omega, tol, max, false)
+    }
+
+    /// `solve`; `by_balance`: done when the balance is within `tol` at a 25th sweep, whatever the last sweep
+    /// moved. Over-relaxed, a sweep moves a cell up to 1.9 times what its balance asks, so on a small grid the
+    /// moves can circle just over `tol` for good with the balance under it: the 256 planet of seed 71317 ran its
+    /// 20,000 sweeps, 57 s, to end 0.7 mm off. (`table` asks it for maps of fewer cells than `EDGE`; the big
+    /// planets' solves stop as they did, to the bit.)
+    pub fn solve_by(&self, omega: f64, tol: f64, max: usize, by_balance: bool) -> (Vec<f64>, usize) {
         let mut h: Vec<f64> = (0..self.k.len()).map(|i| if self.fixed[i].is_nan() { self.ground[i].max(self.base[i]) } else { self.fixed[i] }).collect();
         let (mut omega, mut last) = (omega, f64::INFINITY);
         for sweep in 1..=max {
@@ -85,7 +94,7 @@ impl Aquifer {
                 h[i] = new;
             }
             // a small move a sweep is no proof under over-relaxation: the balance is
-            if moved < tol && sweep % 25 == 0 && self.residual(&h) < tol {
+            if (moved < tol || by_balance) && sweep % 25 == 0 && self.residual(&h) < tol {
                 return (h, sweep);
             }
         }
@@ -222,7 +231,7 @@ pub fn table(b: &super::land::Bake, l: &super::life::Life, n: u32, pet_per_c: f3
             a.q[c] = rain / dry * dx * dx;
         }
     }
-    let (h, sweeps) = a.solve(1.9, TOL, SWEEPS);
+    let (h, sweeps) = a.solve_by(1.9, TOL, SWEEPS, e < EDGE);
     let solved = a.springs(&h);
     let table: Vec<f32> = (0..cells)
         .map(|c| {

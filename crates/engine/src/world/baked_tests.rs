@@ -23,6 +23,14 @@ fn a_small_planets_table_is_solved_on_its_own_cells() {
     assert!(sweeps < 3500, "{sweeps} sweeps for 64 cells a face edge");
 }
 
+/// A small planet's solve stops when its balance is right, not when its sweeps stop moving: the soak's 256
+/// planet of seed 71317 circled 0.7 mm off through all 20,000 sweeps, 57 s of a gate.
+#[test]
+fn a_small_planets_solve_stops_on_its_balance() {
+    let (sweeps, residual) = Map::bake(71317, 256).solve;
+    assert!((sweeps as usize) < crate::bake::ground::SWEEPS && (residual as f64) < crate::bake::ground::TOL, "{sweeps} sweeps, residual {residual} m");
+}
+
 /// On the warped grid a cave reaches as far sideways in metres as on the old one: its reach in columns is its
 /// radius over the column's width where it lies, its height in layers as it was (near a corner a tube was a third
 /// as wide as it was high; the review of generation 13).

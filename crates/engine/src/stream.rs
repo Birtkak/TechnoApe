@@ -1766,7 +1766,9 @@ mod tests {
         for walk in [true, false] {
             s.touch_block(&w, hit);
             s.dirty = walk;
+            let walks = s.walks;
             let reqs = frame(&mut s);
+            assert_eq!(s.walks - walks, walk as u64, "a walk, then a frame that only culls");
             let mine: Vec<f64> = reqs.iter().filter(|r| keys.contains(&r.1)).map(|r| r.0).collect();
             assert!(!mine.is_empty() && mine.iter().all(|p| *p < 100.0), "walk {walk}: the edit's requests rank at {mine:?}");
         }
