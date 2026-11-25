@@ -533,7 +533,10 @@ mod tests {
     /// From 30 m out the eye is raised 54 m to see past the rim, over `RAY_REACH` from the lake: the air's.
     #[test]
     fn a_lava_lakes_felt_falls_with_distance_under_its_crust() {
-        let w = volcano_world();
+        // (on the land it was written for: on hill country seed 2's lake sits in a crater so deep that 20 m out the
+        // eye must rise 47 m to see its rim, and the felt is the air's from there on)
+        let (seed, map) = crate::bake::volcano::tests::live_seed_v11();
+        let w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, HILL_COUNTRY - 1);
         let b = &w.bodies[0];
         let c = b.craters().iter().find(|c| c.lake.is_some()).expect("a lake").clone();
         let ej = c.at.1 as i32;

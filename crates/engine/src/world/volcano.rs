@@ -517,7 +517,10 @@ mod tests {
     /// under it, the third of a block short of one stays water; in +20 C air it all melts back to exactly its water.
     #[test]
     fn freezing_water_never_buries_a_player_and_its_ice_melts_back_in_warm_air() {
-        let mut w = world(false);
+        // (on the land it was written for, a spawn on cold ground: on hill country seed 2's spawn lies on rock at 58 C,
+        // which keeps the pond over freezing in any air)
+        let (seed, map) = crate::bake::volcano::tests::live_seed_v11();
+        let mut w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(map), None, 0.0, VOLCANOES);
         let water = crate::fluids::WATER;
         let units = 2 * U + U / 3;
         let (cols, z0) = pit(&mut w, 1, 3, units, water);

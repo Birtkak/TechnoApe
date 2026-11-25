@@ -209,7 +209,9 @@ fn a_player_is_sent_the_live_air_and_a_save_carries_it_on() {
 /// reaches, and the air's ledger plus the water's stays whole every tick.
 #[test]
 fn the_live_rain_feeds_the_rivers_and_both_ledgers_hold() {
-    let mut s = Server::baked(1536, 32, 7, channel().1);
+    // (seed 5: on hill country seed 7's small planet has its reaches under 3 air cells, none rained on in 400 ticks;
+    // generation 14's had them under 8, one handed a single unit. Seed 5's has them under 24 and they take 2,951)
+    let mut s = Server::baked(1536, 32, 5, channel().1);
     for _ in 0..400 {
         s.tick();
         assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
@@ -5311,3 +5313,4 @@ fn spawn_live_onto_lava_says_so() {
         }
     }
 }
+

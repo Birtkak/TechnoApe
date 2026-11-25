@@ -75,8 +75,9 @@ impl Body {
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
         Some((z, ROWS.biomes[crate::bake::life::ICE as usize].top(roll, 0.0)))
     }
-    /// The highest of `plants_with`'s blocks, `plants_with(..).last()` to the bit (the test keeps that as its
-    /// reference): each plant's column is walked down from its top and stops at its first block (ADR 0102).
+    /// The highest of `plants_with`'s plant blocks, `plants_with(..).last()` to the bit leaving out the ice sheet (the
+    /// test keeps that as its reference; the far tiles ask `ice_sheet` themselves): each plant's column is walked down
+    /// from its top and stops at its first block (ADR 0102).
     pub fn plant_top_with(&self, face: usize, i: i32, j: i32, cand: &mut impl FnMut(usize, i32, i32) -> Option<Foot>) -> Option<(i32, u16)> {
         let mut best: Option<(i32, u16, bool)> = None;
         self.feet_over(face, i, j, cand, |f, p, dx, dz| {
