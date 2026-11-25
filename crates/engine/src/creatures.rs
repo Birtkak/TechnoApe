@@ -83,6 +83,15 @@ pub struct Creature {
     pub sway: f32,
     /// Degrees the tail turns each way.
     pub wag: f32,
+    /// Points of health a live one has (ADR 0211); 0: it cannot be hurt.
+    #[serde(default)]
+    pub health: u8,
+    /// Pieces of raw meat one leaves, killed.
+    #[serde(default)]
+    pub meat: u8,
+    /// Health points a hurt one's bite takes from the player it charges; 0: hurt, it flees.
+    #[serde(default)]
+    pub bite: u8,
 }
 
 /// Every number's range, for the checks and the Studio's sliders: (name, min, max, unit, group).
@@ -191,8 +200,9 @@ pub fn rows(text: &str) -> Result<Vec<Creature>, String> {
 /// The file's text of these rows (parse it again to check it).
 pub fn write(rows: &[Creature]) -> String {
     let text = toml::to_string(&File { creature: rows.to_vec() }).expect("creatures always serialise");
-    // each number as its f32 prints (1.2, not 1.2000000476837158), so a saved row reads as it was typed
-    let line = |l: &str| match l.split_once(" = ").and_then(|(k, v)| Some((k, v.parse::<f32>().ok()?))) {
+    // each number as its f32 prints (1.2, not 1.2000000476837158), so a saved row reads as it was typed; a whole
+    // number (health, ADR 0211) stays whole
+    let line = |l: &str| match l.split_once(" = ").filter(|(_, v)| v.contains('.')).and_then(|(k, v)| Some((k, v.parse::<f32>().ok()?))) {
         Some((k, v)) => format!("{k} = {v:?}\n"),
         None => format!("{l}\n"),
     };

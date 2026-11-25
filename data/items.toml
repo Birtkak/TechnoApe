@@ -80,6 +80,12 @@ name = "berries"
 look = "coral"
 feeds = 2
 
+# What a killed animal leaves (data/creatures.toml `meat`, ADR 0211); raw it feeds little, cooking comes later.
+[[item]]
+name = "raw meat"
+look = "clay"
+feeds = 3
+
 # Cut from the small plants (data/clutter.toml `gives` on a plant, ADR 0147): for cord and for hafting
 # tools (docs/design/crafting.md).
 [[item]]

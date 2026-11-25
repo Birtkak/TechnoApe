@@ -176,6 +176,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
             f if f < 0.3 => b.link.send(ToServer::Drink(None)),
             // or a bite of whatever is in hand (ADR 0210): the ledger counts what is eaten
             f if f < 0.35 => b.link.send(ToServer::Eat),
+            // or a hit on an animal, real or made up (ADR 0211): the ledger counts the meat
+            f if f < 0.4 => b.link.send(ToServer::Hit(b.rng.next() as u32 % 64)),
             _ => b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 }),
         }
     } else if r < 0.1 + ITEM_SHARE {

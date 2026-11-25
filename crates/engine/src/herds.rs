@@ -28,6 +28,47 @@ pub enum Mind {
     Wander,
     Flee,
     Sleep,
+    /// Hurt, a kind that bites runs at the nearest player (ADR 0211); last, so older saves read the same.
+    Charge,
+}
+
+/// A hurt animal's state (ADR 0211): health points taken, the herds' tick it was last hit, the tick it may
+/// bite again.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+pub struct Wound {
+    pub taken: u8,
+    pub hit: u64,
+    pub bite: u64,
+}
+
+/// What a strike did (ADR 0211).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Struck {
+    /// No such animal, or one that cannot be hurt.
+    Missed,
+    Hurt,
+    /// Dead and gone: its kind and where it stood, for what it leaves.
+    Killed { kind: u16, at: DVec3 },
+}
+
+/// A charge lasts this many ticks (6 s); a bite reaches this far from its feet to the player's (m), at most
+/// one every `BITE_EVERY` ticks; a wound heals whole `HEAL_TICKS` after the last hit (5 min).
+pub const CHARGE_TICKS: u64 = 120;
+pub const BITE_RANGE: f64 = 1.6;
+pub const BITE_EVERY: u64 = 30;
+pub const HEAL_TICKS: u64 = 6000;
+/// How far a charging animal sees a player to run at (m).
+pub const CHASE: f64 = 20.0;
+/// A player hits an animal whose body's sphere is this near the eye (m), at most one hit every `HIT_WAIT_S`.
+pub const HIT_REACH: f64 = 4.0;
+pub const HIT_WAIT_S: f64 = 0.5;
+
+/// The ray from `eye` along unit `dir` meets the sphere at `c` of radius `r` this far ahead, if it does.
+pub fn ray_hit(eye: DVec3, dir: DVec3, c: DVec3, r: f64) -> Option<f64> {
+    let along = (c - eye).dot(dir);
+    let off2 = (c - eye).length_squared() - along * along;
+    let r2 = r * r;
+    (off2 <= r2 && along + (r2 - off2).sqrt() >= 0.0).then(|| (along - (r2 - off2).sqrt()).max(0.0))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -58,6 +99,11 @@ pub struct Kind {
     pub name: String,
     pub walk: f64,
     pub run: f64,
+    /// How large it is drawn (its body's sphere, `body`), and ADR 0211's health, meat and bite.
+    pub scale: f64,
+    pub health: u8,
+    pub meat: u8,
+    pub bite: u8,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -93,6 +139,8 @@ pub struct Herds {
     /// The herds' own clock: ticks stepped, kept with the herds. The minds and the looks ahead count it, not
     /// the world's age, which /timewarp runs faster (a warp of 20 would freeze every `% 20`).
     pub clock: u64,
+    /// The hurt animals, by id (ADR 0211); kept with the herds.
+    pub wounds: BTreeMap<u32, Wound>,
 }
 
 /// The creatures and herds files as compiled in: the rows a server starts with. A server with a `data/` folder
@@ -117,7 +165,7 @@ impl Herds {
     /// creature or biome, a share outside 0..1, a size out of order or over 12.
     pub fn parse(creatures: &str, herds: &str, seed: i32) -> Result<Herds, String> {
         let rows = crate::creatures::rows(creatures)?;
-        let kinds: Vec<Kind> = rows.iter().map(|c| Kind { name: c.name.clone(), walk: c.walk_speed as f64, run: c.run_speed as f64 }).collect();
+        let kinds: Vec<Kind> = rows.iter().map(|c| Kind { name: c.name.clone(), walk: c.walk_speed as f64, run: c.run_speed as f64, scale: c.scale as f64, health: c.health, meat: c.meat, bite: c.bite }).collect();
         let f: File = toml::from_str(herds).map_err(|e| format!("data/herds.toml: {e}"))?;
         let names = &crate::biomes::ROWS.biomes;
         let mut by_biome = vec![Vec::new(); names.len()];
@@ -131,7 +179,7 @@ impl Herds {
                 by_biome[i].push((k as u16, r.share, r.size));
             }
         }
-        Ok(Herds { kinds, by_biome, seed, sites: BTreeMap::new(), next: 1, awake: 0, clock: 0 })
+        Ok(Herds { kinds, by_biome, seed, sites: BTreeMap::new(), next: 1, awake: 0, clock: 0, wounds: BTreeMap::new() })
     }
 
     /// The files changed under a running server (ADR 0134): the kinds' speeds and the herds' shares are the new
@@ -217,7 +265,9 @@ impl Herds {
     /// One tick: wake the sites near `players` (feet and velocity in body 0's frame), then step every awake
     /// animal by `dt` (0: no physics this tick) up to `MAX_AWAKE`. `tick` is the herds' clock (the server
     /// passes `clock`); it is one more after.
-    pub fn tick(&mut self, world: &World, players: &[(DVec3, DVec3)], tick: u64, dt: f64) {
+    /// The bites of this tick (ADR 0211): the player's place in `players` and the biter's kind.
+    pub fn tick(&mut self, world: &World, players: &[(DVec3, DVec3)], tick: u64, dt: f64) -> Vec<(usize, u16)> {
+        let mut bites = Vec::new();
         for (feet, _) in players {
             self.wake(world, *feet, tick);
         }
@@ -242,6 +292,15 @@ impl Herds {
                 } else if dt > 0.0 {
                     move_on(world, a, kind, dt, tick);
                 }
+                // a charging biter next to a player bites, at most every BITE_EVERY
+                if a.mind == Mind::Charge && kind.bite > 0 {
+                    let w = self.wounds.entry(a.id).or_default();
+                    let near = players.iter().enumerate().map(|(k, (feet, _))| (k, (*feet - a.p.pos).length())).filter(|(_, d)| *d < BITE_RANGE).min_by(|x, y| x.1.total_cmp(&y.1));
+                    if let Some((k, _)) = near.filter(|_| tick >= w.bite) {
+                        w.bite = tick + BITE_EVERY;
+                        bites.push((k, a.kind));
+                    }
+                }
             }
             // gone: one that did not get off the hot ground in its time (`think`), and one whose body is in lava
             // (looked at once a second)
@@ -250,8 +309,59 @@ impl Herds {
                 dead.clear();
             }
         }
+        // a wound left alone heals whole (and one of an animal gone otherwise is forgotten)
+        if tick % 20 == 0 {
+            self.wounds.retain(|_, w| tick < w.hit + HEAL_TICKS);
+        }
         self.awake = stepped;
         self.clock = tick + 1;
+        bites
+    }
+
+    /// Animal `id`, wherever it is.
+    pub fn find(&self, id: u32) -> Option<&Animal> {
+        self.all().find(|a| a.id == id)
+    }
+
+    /// Animal `a`'s body as a sphere, for aiming and reach: its centre and radius (m).
+    pub fn body(&self, world: &World, a: &Animal) -> (DVec3, f64) {
+        let s = self.kinds.get(a.kind as usize).map_or(1.0, |k| k.scale);
+        (a.p.pos + phys::up(world, a.p.pos) * 0.45 * s, 0.5 * s)
+    }
+
+    /// Animal `id` struck for `points` of health by someone at `from` (ADR 0211). At its kind's health it dies
+    /// and is gone; hurt, one that bites charges for `CHARGE_TICKS`, any other flees from `from`, and the rest
+    /// of its herd near it flee too.
+    pub fn strike(&mut self, world: &World, id: u32, points: u8, from: DVec3, tick: u64) -> Struck {
+        let kinds = &self.kinds;
+        let Some(herd) = self.sites.values_mut().find(|h| h.animals.iter().any(|a| a.id == id)) else { return Struck::Missed };
+        let k = herd.animals.iter().position(|a| a.id == id).unwrap();
+        let kind = &kinds[herd.animals[k].kind as usize];
+        if kind.health == 0 || points == 0 {
+            return Struck::Missed;
+        }
+        let w = self.wounds.entry(id).or_default();
+        (w.taken, w.hit) = (w.taken.saturating_add(points), tick);
+        if w.taken >= kind.health {
+            self.wounds.remove(&id);
+            let a = herd.animals.remove(k);
+            return Struck::Killed { kind: a.kind, at: a.p.pos };
+        }
+        let bites = kind.bite > 0;
+        let at = herd.animals[k].p.pos;
+        for a in herd.animals.iter_mut().filter(|a| a.id == id || (a.mind != Mind::Charge && (a.p.pos - at).length() < CHASE)) {
+            if a.id == id && bites {
+                (a.mind, a.until) = (Mind::Charge, tick + CHARGE_TICKS);
+            } else {
+                let up = phys::up(world, a.p.pos);
+                (a.mind, a.until, a.go) = (Mind::Flee, tick + 80 + (a.id as u64 % 41), phys::tangent(a.p.pos - from, up, a.p.fwd));
+            }
+            if a.id == id {
+                // its voice: the client plays it when the count changes
+                a.call = a.call.wrapping_add(1);
+            }
+        }
+        Struck::Hurt
     }
 
     /// A real animal of `kind` standing at direction `d`, in the site it stands in (made first, so the seed's
@@ -284,10 +394,18 @@ impl Herds {
     /// forget empty sites the seed makes again when long-running servers show their size.
     pub fn to_bytes(&self) -> Vec<u8> {
         let names: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).collect();
-        postcard::to_allocvec(&(self.next, self.clock, names, &self.sites)).expect("herds serialise")
+        postcard::to_allocvec(&(self.next, self.clock, names, &self.sites, &self.wounds)).expect("herds serialise")
     }
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let (next, clock, names, mut sites): (u32, u64, Vec<String>, BTreeMap<Site, Herd>) = postcard::from_bytes(bytes).map_err(|e| format!("herds: {e}"))?;
+        // a save from before ADR 0211 has no wounds
+        type Old = (u32, u64, Vec<String>, BTreeMap<Site, Herd>);
+        let (next, clock, names, mut sites, wounds) = match postcard::from_bytes::<(u32, u64, Vec<String>, BTreeMap<Site, Herd>, BTreeMap<u32, Wound>)>(bytes) {
+            Ok(v) => v,
+            Err(_) => {
+                let (n, c, names, s): Old = postcard::from_bytes(bytes).map_err(|e| format!("herds: {e}"))?;
+                (n, c, names, s, BTreeMap::new())
+            }
+        };
         let map: Vec<Option<u16>> = names.iter().map(|n| self.kinds.iter().position(|k| &k.name == n).map(|i| i as u16)).collect();
         for a in sites.values_mut().flat_map(|h| &mut h.animals) {
             match map.get(a.kind as usize).copied().flatten() {
@@ -295,7 +413,7 @@ impl Herds {
                 None => return Err(format!("herds: an animal of kind '{}', which data/creatures.toml no longer has", names.get(a.kind as usize).map_or("?", |n| n.as_str()))),
             }
         }
-        (self.next, self.clock, self.sites) = (next, clock, sites);
+        (self.next, self.clock, self.sites, self.wounds) = (next, clock, sites, wounds);
         Ok(())
     }
 }
@@ -415,6 +533,14 @@ fn think(world: &World, a: &mut Animal, kind: &Kind, home: DVec3, players: &[(DV
         }
         return false;
     }
+    // charging (ADR 0211): at the nearest player in sight, till its time is up; no scare turns it
+    if a.mind == Mind::Charge && tick < a.until {
+        let near = players.iter().map(|(feet, _)| *feet - a.p.pos).filter(|d| d.length() < CHASE).min_by(|x, y| x.length().total_cmp(&y.length()));
+        if let Some(d) = near {
+            a.go = phys::tangent(d, up, a.p.fwd);
+        }
+        return false;
+    }
     // off the hot ground with that time still running (longer than any scare's): it runs on 2 s, no more
     if rule(world) && a.mind == Mind::Flee && a.until > tick + SCARE_TICKS {
         a.until = tick + 40;
@@ -485,7 +611,7 @@ fn move_on(world: &World, a: &mut Animal, kind: &Kind, dt: f64, tick: u64) {
     }
     let speed = match a.mind {
         Mind::Wander => kind.walk,
-        Mind::Flee => kind.run,
+        Mind::Flee | Mind::Charge => kind.run,
         _ => 0.0,
     };
     if speed == 0.0 {
@@ -728,6 +854,84 @@ mod tests {
         let id = calm.add(&w, "deer", (p - w.bodies[0].centre).normalize(), DVec3::X, 0).unwrap();
         calm.tick(&w, &[(me, toward * 1.0)], 1, 0.05);
         assert_ne!(calm.all().find(|a| a.id == id).unwrap().mind, Mind::Flee);
+    }
+
+    /// ADR 0211: hits add up to the kind's health; a hurt deer flees, a killed one is gone and says what it was.
+    #[test]
+    fn a_struck_animal_flees_and_dies_at_its_health() {
+        let mut w = world();
+        noon(&mut w);
+        let mut h = herds();
+        let p = spawn(&w);
+        h.tick(&w, &[(p, DVec3::ZERO)], 0, 0.05);
+        let id = h.add(&w, "deer", (p - w.bodies[0].centre).normalize(), DVec3::X, 0).unwrap();
+        let deer = h.kinds.iter().find(|k| k.name == "deer").unwrap().clone();
+        assert!(deer.health > 4 && deer.meat > 0 && deer.bite == 0, "{deer:?}");
+        let at = h.find(id).unwrap().p.pos;
+        assert_eq!(h.strike(&w, id, 4, at - DVec3::X, 1), Struck::Hurt);
+        assert_eq!(h.find(id).unwrap().mind, Mind::Flee, "a hurt deer flees");
+        let mut t = 2;
+        let killed = loop {
+            match h.strike(&w, id, 4, at - DVec3::X, t) {
+                Struck::Hurt => t += 1,
+                s => break s,
+            }
+            assert!(t < 20);
+        };
+        assert!(matches!(killed, Struck::Killed { kind, .. } if h.kinds[kind as usize].name == "deer"), "{killed:?}");
+        assert_eq!(t, (deer.health as u64).div_ceil(4), "health {} in hits of 4 (the first at tick 1)", deer.health);
+        assert!(h.find(id).is_none() && h.wounds.is_empty(), "gone, and its wound with it");
+        assert_eq!(h.strike(&w, id, 4, at, t), Struck::Missed, "no such animal");
+    }
+
+    /// ADR 0211: a hurt boar charges the nearest player and bites at most every `BITE_EVERY` while near, then
+    /// calms down; its wound heals after `HEAL_TICKS` without a hit, and wounds are kept in the save.
+    #[test]
+    fn a_hurt_boar_charges_and_bites_then_heals() {
+        let mut w = world();
+        noon(&mut w);
+        let mut h = herds();
+        let p = spawn(&w);
+        h.tick(&w, &[(p, DVec3::ZERO)], 0, 0.05);
+        let id = h.add(&w, "boar", (p - w.bodies[0].centre).normalize(), DVec3::X, 0).unwrap();
+        let at = h.find(id).unwrap().p.pos;
+        let me = at + phys::tangent(DVec3::X, phys::up(&w, at), DVec3::Y) * 1.0;
+        assert_eq!(h.strike(&w, id, 1, me, 1), Struck::Hurt);
+        assert_eq!(h.find(id).unwrap().mind, Mind::Charge);
+        let boar = h.kinds.iter().position(|k| k.name == "boar").unwrap() as u16;
+        let mut bites = Vec::new();
+        for t in 2..2 + BITE_EVERY * 2 {
+            // the player keeps standing beside it, wherever it went
+            let me = h.find(id).unwrap().p.pos + phys::tangent(DVec3::X, phys::up(&w, at), DVec3::Y) * 1.0;
+            bites.extend(h.tick(&w, &[(me, DVec3::ZERO)], t, 0.0));
+        }
+        assert_eq!(bites, vec![(0, boar), (0, boar)], "a bite every {BITE_EVERY} ticks");
+        let far = at + DVec3::Y * 200.0;
+        assert!(h.tick(&w, &[(far, DVec3::ZERO)], 2 + BITE_EVERY * 2, 0.0).is_empty(), "nobody near, no bite");
+        // saved and loaded, the wound is there; an old save without wounds still loads
+        let mut back = herds();
+        back.load(&h.to_bytes()).unwrap();
+        assert_eq!(back.wounds, h.wounds);
+        let old = postcard::to_allocvec(&(h.next, h.clock, h.kinds.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(), &h.sites)).unwrap();
+        let mut back = herds();
+        back.load(&old).unwrap();
+        assert!(back.wounds.is_empty() && back.find(id).is_some());
+        // left alone it calms down and the wound heals
+        let t0 = 3 + BITE_EVERY * 2;
+        for t in t0..t0 + CHARGE_TICKS.max(HEAL_TICKS) + 40 {
+            h.tick(&w, &[(far, DVec3::ZERO)], t, 0.0);
+        }
+        assert_ne!(h.find(id).unwrap().mind, Mind::Charge);
+        assert!(h.wounds.is_empty(), "healed");
+    }
+
+    /// The aim at an animal: a ray meets its body's sphere, nearest point first; past it or beside it, no.
+    #[test]
+    fn a_ray_meets_an_animals_body() {
+        let c = DVec3::new(5.0, 0.0, 0.0);
+        assert!((ray_hit(DVec3::ZERO, DVec3::X, c, 1.0).unwrap() - 4.0).abs() < 1e-9);
+        assert!(ray_hit(DVec3::ZERO, -DVec3::X, c, 1.0).is_none(), "behind");
+        assert!(ray_hit(DVec3::ZERO, DVec3::Y, c, 1.0).is_none(), "beside");
     }
 
     #[test]

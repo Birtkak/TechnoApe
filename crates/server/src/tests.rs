@@ -3372,6 +3372,47 @@ fn structure_stands_a_structure_file_near_the_player_and_refuses_what_is_no_name
     assert!(a[3].starts_with("no structure 'no_such'"), "{a:?}");
 }
 
+/// ADR 0211: `Hit` with the hand axe kills a hare in one blow, its meat laid in a pile, the ledger exact and
+/// the axe worn; out of reach or too soon after the last, nothing; a fist on a deer only hurts it.
+#[test]
+fn a_hare_hit_with_the_hand_axe_dies_and_leaves_meat() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    let feet = s.clients[0].phys.pos;
+    let d = (feet - s.world.bodies[0].centre).normalize();
+    let fwd = phys::tangent(DVec3::X, d, DVec3::Y);
+    let hare = s.herds.add(&s.world, "hare", (d + fwd * 2.0 / s.world.bodies[0].radius).normalize(), DVec3::X, s.herds.clock).unwrap();
+    let far = s.herds.add(&s.world, "deer", (d + fwd * 30.0 / s.world.bodies[0].radius).normalize(), DVec3::X, s.herds.clock).unwrap();
+    let hand = s.clients[0].hand as usize;
+    let axe = ITEMS.named("hand axe").unwrap();
+    s.clients[0].slots[hand] = Some(items::Stack::new(axe, 1));
+    *s.item_made.entry(axe).or_default() += 1;
+    l.send(ToServer::Hit(far));
+    s.tick();
+    assert!(s.herds.find(far).is_some() && s.herds.wounds.is_empty(), "out of reach: nothing");
+    l.send(ToServer::Hit(hare));
+    s.tick();
+    assert!(s.herds.find(hare).is_none(), "one blow of 4 kills a hare");
+    let meat = ITEMS.named("raw meat").unwrap();
+    let laid: u16 = s.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|st| st.item == meat).map(|st| st.n).sum();
+    assert_eq!(laid, 1, "a hare's meat lies there");
+    assert!(s.clients[0].slots[hand].is_some_and(|st| st.payload == 1), "the axe wore a use");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // a fist on a deer near: hurt, not killed, and a second hit at once is too soon
+    let deer = s.herds.add(&s.world, "deer", (d + fwd * 2.0 / s.world.bodies[0].radius).normalize(), DVec3::X, s.herds.clock).unwrap();
+    s.clients[0].slots[hand] = None;
+    for _ in 0..10 {
+        s.tick();
+    }
+    l.send(ToServer::Hit(deer));
+    l.send(ToServer::Hit(deer));
+    s.tick();
+    assert_eq!(s.herds.wounds.get(&deer).map(|w| w.taken), Some(1), "a fist is a point, once");
+}
+
 /// ADR 0210: `Eat` with a food in hand eats one of it and fills hunger by its `feeds`; full, creative,
 /// dead or with no food in hand, nothing is eaten.
 #[test]

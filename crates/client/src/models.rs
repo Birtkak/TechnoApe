@@ -262,7 +262,7 @@ pub struct Figure {
 }
 
 /// The clip each `herds::Mind` plays, by its number: stand, graze, wander, flee, sleep.
-pub const ACT_CLIPS: [&str; 5] = ["a.idle", "a.eat", "a.walk", "a.run", "a.idle"];
+pub const ACT_CLIPS: [&str; 6] = ["a.idle", "a.eat", "a.walk", "a.run", "a.idle", "a.run"];
 
 /// Every creature row's clips for live animals on its model (ADR 0083): `a.idle`, `a.eat`, `a.walk` at its walk
 /// speed and `a.run` at its run speed. A row the models refuse is skipped (its animals stand unanimated).
@@ -742,7 +742,7 @@ impl Models {
                 continue;
             }
             let clips = &self.list[m].0.model.clips;
-            let c = clips.iter().position(|k| k.name == ACT_CLIPS[(a.act as usize).min(4)]).or_else(|| idle(m));
+            let c = clips.iter().position(|k| k.name == ACT_CLIPS[(a.act as usize).min(ACT_CLIPS.len() - 1)]).or_else(|| idle(m));
             let f = (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), up.extend(0.0), z.extend(0.0), (o - cam).extend(1.0))).as_mat4();
             inst[m].push((c, t + a.id as f64 * 0.37, f, 0, a.scale));
         }

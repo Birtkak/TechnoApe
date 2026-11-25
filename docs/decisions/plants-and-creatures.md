@@ -478,6 +478,24 @@ kept as a delta, and not ticked when nobody is near. Design: `docs/design/creatu
   judged [0091].
 - Shadows of plants do not sway [0091].
 
+### Hurting animals [0211, 2026-11-25]
+- A creature row of `data/creatures.toml` may say `health` (points), `meat` (raw meat left, killed) and `bite`
+  (points a hurt one's bite takes); 0 or left out: it cannot be hurt, leaves nothing, flees. Boar 16 / 4 / bite 3,
+  deer 10 / 3, hare 4 / 1 (the developer's calls: health per kind, the boar fights back, raw meat that can be eaten).
+- The dig button on an animal (`play::animal_aimed`: its body a sphere at its feet + 0.45 x scale, radius
+  0.5 x scale, nearer than the aimed block and within `herds::HIT_REACH` 4 m) sends `ToServer::Hit(id)`, appended
+  after `Eat`. The server checks alive, not a spectator, reach from the eye, one every `HIT_WAIT_S` 0.5 s. A fist is
+  1 point, a tool 2 + 2 a grade (the hand axe 4) and wears a use, the ledger moving as a dig's.
+- `Herds::strike`: the points add up in `Herds::wounds` (by id, kept in the herds' save as a fifth field; a save
+  without it loads with none). At the kind's health it is gone and `raw meat` (feeds 3) lies in a pile where it
+  stood, counted made. Hurt, a biter turns `Mind::Charge` (appended to the enum, the wire's act 5, drawn running)
+  for 6 s at its run speed towards the nearest player within 20 m, and bites one within 1.6 m of its feet at most
+  every 1.5 s: "<name> was killed by a boar". Anything else, and the rest of the herd within 20 m, flee from the
+  hitter. Its voice plays at each hit (the call counter). A wound heals whole 5 min after the last hit.
+- Bots: `hit` (the nearest animal it knows); the soak's bots hit made-up and real ids at random.
+- Open: a flinch on the hit (`creatures::act` has `hurt`), an outline on the aimed animal, cooking, hides, hostile
+  creatures, animals on Luna, a charge in creative (it charges, it does not bite).
+
 ## No longer holds
 
 - 0052's "small plants as models" (`voxel::plant`, the Models page's "Plant..."): removed with the voxel plant
