@@ -7,6 +7,7 @@ today. Numbers in brackets are the ADRs (`archive/NNNN-*.md`) a decision came fr
 
 ## The developer's calls
 
+- A third-person view on F5, "front/back like minecraft" [0208].
 - Survival needs a first, simple health and hunger; damage is from **impact** (the speed lost to something solid, any
   direction), not from the height fallen: a slow landing from a Luna cliff costs little, a fast hit kills whatever
   the gravity [0040].
@@ -65,6 +66,20 @@ today. Numbers in brackets are the ADRs (`archive/NNNN-*.md`) a decision came fr
 - Teleports move the player at rest (`Server::put`); the client takes a correction of 2 m or more as one and looks
   the server's way, level [0023].
 - C held zooms 3x (eased over about 0.1 s, the mouse 3x slower). Creative is `/playmode` only [0023].
+
+### The third-person view on F5 [0208, 2026-11-25]
+F5 (the action `person`, rebindable; the act `f5`) turns the view: first person, third person from behind, third
+person from the front, first person again. The camera sits `CAM_REACH` 4 m from the eye along the look (behind it, or
+ahead looking back), its up the eye's; a ray in 5 cm steps stops it 0.25 m short of the first solid block, so it never
+looks through the ground. Only the camera moves: the aim, the dig and the place, what the server is sent, the body's
+shadow and the held lamp stay the eye's; the world is streamed, heard and fogged from the camera. In third person the
+hand, the held item and the HUD's block in hand are not drawn and the player's own figure is: the ape at rest, as
+tall and as placed as its shadow's boxes (ADR 0119), turned to the look's heading; not drawn with the camera within
+0.6 m of the eye. A spectator has no body (ADR 0202) and stays in first person whatever F5 says. The view is not kept
+in the settings or the save: a session starts in first person. The crosshair stays in every view (in the back view it
+is off the aim by the camera's 4 m).
+Open: the figure walking, its head's pitch and what it holds (the ape has no clips yet); the other players' figures
+(they are still only shadows).
 
 ## Sprint
 

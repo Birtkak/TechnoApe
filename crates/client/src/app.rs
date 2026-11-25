@@ -171,6 +171,8 @@ pub(crate) struct App {
     pub(crate) held_name: (usize, Instant),
     /// Spectator mode as the server last said (`ToClient::Spectator`, ADR 0202).
     pub(crate) spectator: bool,
+    /// The view (F5, ADR 0208): 0 first person, 1 third person from behind, 2 from the front.
+    pub(crate) person: u8,
     /// An F10 row's look up to its sight (radians) and when it was asked, taken when the server's teleport lands
     /// within `play::SIGHT_S`, else dropped.
     pub(crate) sight_pitch: Option<(f64, std::time::Instant)>,
