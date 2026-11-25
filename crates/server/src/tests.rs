@@ -1880,8 +1880,9 @@ fn reeds_in_water_are_cut_and_the_water_is_unchanged() {
                 let w = &s.world;
                 let b = &w.bodies[0];
                 let n = b.n;
+                // (not on a face's edge: `around` below asks the eight columns about it by the face's own numbers)
                 (0..6u8)
-                    .flat_map(|f| (0..n).flat_map(move |i| (0..n).map(move |j| (f, i, j))))
+                    .flat_map(|f| (1..n - 1).flat_map(move |i| (1..n - 1).map(move |j| (f, i, j))))
                     .filter(|&(f, i, j)| b.water_at(f, i, j).is_some_and(|w| w.1 != engine::liquid::SEA))
                     .find_map(|(f, i, j)| {
                         let tile = b.tile(f, 0, i.div_euclid(engine::world::CS), j.div_euclid(engine::world::CS));

@@ -346,7 +346,10 @@ pub fn climate(b: &Bake, p: &LifeParams) -> Year {
                 (air.vap[i], air.cloud[i], air.dirt[i]) = (part(airb.vap[j]), part(airb.cloud[j]), part(airb.dirt[j]));
             }
         }
+        // the shares are cut to whole units (and on grids that do not nest, the 1536 planet's 12 cells on 8, do
+        // not add up to their coarse column): the sea takes the difference, so the water's count is the year's
         air.sea = airb.sea;
+        air.sea += (airb.ledger() - air.ledger()) as i64;
         (air.hold, air.t) = (None, -(p.air_settle as f64) * super::air::DAY);
         for _ in 0..p.air_settle * (super::air::DAY / p.air_dt as f64).round() as usize {
             air.step(p.air_dt);

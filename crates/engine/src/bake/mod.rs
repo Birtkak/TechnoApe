@@ -1198,4 +1198,21 @@ mod tests {
         assert_eq!(a.hash, b.hash);
         assert!(a.biome.iter().any(|&x| x < life::LAND_BIOMES) && a.h.iter().any(|&h| h < 0.0), "land and sea");
     }
+
+    /// The coarse year and its hand-over to the live air (map version 11; a planet this size is the smallest that
+    /// takes them, 12 air cells a face edge on 8): the same map to the bit on the pool and on one thread.
+    /// (5 minutes: by hand when the bake's climate changes; passed 2026-11-25.)
+    #[ignore]
+    #[test]
+    fn the_coarse_year_bakes_the_same_on_one_thread() {
+        assert_ne!(life::air_cells(1536.0, life::LifeParams::default().air_cell_m, 2), (12, 12), "the coarse path");
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap().install(|| Map::bake(5, 1536));
+        assert_eq!(one.hash, shared(5, 1536).hash);
+    }
+
+    /// Version 10's map (generations 12 and 13: the year on the live grid) bakes as it did before version 11.
+    #[test]
+    fn version_10_bakes_as_before() {
+        assert_eq!(format!("{:016x}", Map::bake_v10(5, 256).hash), "ac21af4bc7501ea7");
+    }
 }

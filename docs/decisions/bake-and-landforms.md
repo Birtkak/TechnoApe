@@ -94,10 +94,11 @@ A new world's minutes were its climate's year of weather: real gravity's year (A
 planet and 472 on the 8 km one where the hand-set year was 54, and the air model stepped every one of them on the
 live grid's own columns, 147 s of the 4 km planet's 187 and 531 s on the 8 km one (play build, 2026-11-25). From
 map version 11 (world generation 14) the bake runs its year on a grid twice as coarse (256 m cells; 8 a face edge at
-least, so a small planet's is the live grid as before) in steps twice as long, the same share of a cell a step:
-an eighth of the work. The year's means go from that grid to the cells and to the live grid's columns by the same
+least, so a planet of 1024 columns or fewer keeps the live grid as before, and the 1536 one runs 12 cells on 8, in
+the live grid's steps) in steps twice as long, the same share of a cell a step: an eighth of the work. The year's means go from that grid to the cells and to the live grid's columns by the same
 smoothing as before. The live grid's state at world time 0 is each of its columns laid from its coarse column (the
-air, the ground's heat, soil, snow and dirt by its share of the area), then two days at its own size into the
+air by its share of the area; the ground's heat as it is; soil, snow and dirt come down by its share of the land;
+the sea takes what the whole units' cut leaves, so the water's count is the year's), then two days at its own size into the
 year's turn, so its winds and its own columns' land and water are its own. The 4 km planet bakes in 64 s (climate
 24). Worlds of generations 12 and 13 keep their map of version 10, baked as before (`Map::bake_v10`).
 What it changes, one seed baked both ways on the 4 km planet: the land, the lakes and the river network are the
