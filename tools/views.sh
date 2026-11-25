@@ -9,14 +9,25 @@ if [ "$1" = accept ]; then
   ls -la tests/views/*.png; exit 0
 fi
 mkdir -p out/views
-grep -v '^#' tests/views/views.txt | grep '|' | while IFS='|' read -r name allowed args; do
-  name=$(echo $name); allowed=$(echo $allowed)
-  # (stderr kept: a view with no shot in the gate, where it shares the PC with the tests, says why in its .err)
-  t0=$SECONDS
+# one view: its verdict row in out/views/<name>.row (stderr kept: a view with no shot says why in its .err)
+view() {
+  local name=$1 allowed=$2 args=$3 t0=$SECONDS line
   line=$(timeout 240 ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>out/views/$name.err | tail -1)
   [ -n "$line" ] && [ "${line:0:1}" = "{" ] || line="took $((SECONDS - t0)) s; stderr's end: $(tail -c 200 out/views/$name.err | tr '\n|' '  ')"
-  echo "$name|$allowed|$args|$line"
-done | python -I -c "
+  echo "$name|$allowed|$args|$line" >out/views/$name.row
+}
+# two at a time: a view is mostly its client's load (about 25 s), and one after another the 12 were the quick
+# gate's longest step (5 minutes)
+names=()
+k=0
+while IFS='|' read -r name allowed args; do
+  name=$(echo $name); allowed=$(echo $allowed)
+  names+=("$name")
+  view "$name" "$allowed" "$args" &
+  k=$((k + 1)); [ $((k % 2)) = 0 ] && wait
+done < <(grep -v '^#' tests/views/views.txt | grep '|')
+wait
+for n in "${names[@]}"; do cat out/views/$n.row; done | python -I -c "
 import json, sys
 views, fails = {}, []
 for row in sys.stdin.read().splitlines():
