@@ -47,14 +47,14 @@ rm -f out/check/soak.json out/check/replay.json out/check/views.json out/check/b
 S=target/play/technoape-server.exe
 ( cargo build --profile play -p client -p server >out/check/build.log 2>&1 || exit 1
   touch out/check/built
-  ( TECHNOAPE=target/play/technoape.exe bash tools/views.sh | tail -1 >out/check/views.json ) &
+  ( TECHNOAPE=target/play/technoape.exe VIEW_TIMEOUT=$([ $FAST ] && echo 240 || echo 900) bash tools/views.sh | tail -1 >out/check/views.json ) &
   timeout 600 $S soak=1 bots=50 minutes=$MIN warp=32 seed=$SEED record=out/check/soak.rec >out/check/soak.json
   timeout 600 $S replay=out/check/soak.rec >out/check/replay.json
   wait ) &
 sim=$!
 
 if python -I tools/partest.py out/check/test.log ${FAST:+--fast}; then tests=ok; else
-  tests=fail; fails+=("cargo test: $(grep -E '^test .* FAILED$' out/check/test.log | head -3 | sed 's/^test //;s/ \.\.\. FAILED//' | tr '\n' ' ')")
+  tests=fail; fails+=("cargo test: $(grep -E '^test .* FAILED( <[0-9.]+s>)?$' out/check/test.log | head -3 | sed -E 's/^test //;s/ \.\.\. FAILED( <[0-9.]+s>)?//' | tr '\n' ' ')")
 fi
 t_tests=$SECONDS
 

@@ -12,7 +12,8 @@ mkdir -p out/views
 # one view: its verdict row in out/views/<name>.row (stderr kept: a view with no shot says why in its .err)
 view() {
   local name=$1 allowed=$2 args=$3 t0=$SECONDS line
-  line=$(timeout 240 ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>out/views/$name.err | tail -1)
+  # (the full gate gives each view longer: it shares the PC with every test binary, and two at a time took 255 s)
+  line=$(timeout ${VIEW_TIMEOUT:-240} ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>out/views/$name.err | tail -1)
   [ -n "$line" ] && [ "${line:0:1}" = "{" ] || line="took $((SECONDS - t0)) s; stderr's end: $(tail -c 200 out/views/$name.err | tr '\n|' '  ')"
   echo "$name|$allowed|$args|$line" >out/views/$name.row
 }
