@@ -160,7 +160,7 @@ impl Body {
     /// tubes as caves. A planet's crust (Mars, `bake::mars`) the same, without caves: its marked tubes wait for
     /// its rock provinces; an icy body's (`bake::icy`) too.
     pub fn with_luna(self, map: Arc<Map>) -> Self {
-        if map.version == crate::bake::mars::VERSION || map.version == crate::bake::icy::VERSION {
+        if crate::bake::mars::is(map.version) || map.version == crate::bake::icy::VERSION {
             return self.with_map(map);
         }
         let mut b = self.with_map(map.clone());
@@ -201,7 +201,7 @@ impl Body {
         match self.map() {
             Some(m) if m.version == crate::bake::luna::VERSION => crate::bodies::moon(&BODIES).unwrap_or(0),
             // shortcut: the one row that bakes a planet's crust; a second such row needs its index in the body
-            Some(m) if m.version == crate::bake::mars::VERSION => BODIES.iter().position(|r| r.bake.as_ref().is_some_and(|b| b.2.is_some())).unwrap_or(0),
+            Some(m) if crate::bake::mars::is(m.version) => BODIES.iter().position(|r| r.bake.as_ref().is_some_and(|b| b.2.is_some())).unwrap_or(0),
             _ => 0,
         }
     }
@@ -297,7 +297,7 @@ impl Body {
             h = h.min(c.cut as f64).max(c.floor as f64);
         }
         // maps from before ADR 0105's peaks keep the clamp of AMP 140, so their worlds keep their ground to the bit
-        let amp = if (6..=crate::bake::VERSION).contains(&b.map.version) || b.map.version == crate::bake::mars::VERSION { AMP } else { 140.0 };
+        let amp = if (6..=crate::bake::VERSION).contains(&b.map.version) || crate::bake::mars::is(b.map.version) { AMP } else { 140.0 };
         self.radius - SEA_DEPTH + h.clamp(-FLOOR, amp - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.

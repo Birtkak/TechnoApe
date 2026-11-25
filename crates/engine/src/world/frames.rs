@@ -46,7 +46,7 @@ impl World {
         let list = crate::bodies::sizes(rows, planet_n, moon_n)
             .into_iter()
             .enumerate()
-            .map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { map.as_ref().and_then(|_| Some(rows[i].bake.as_ref()?.get(seed, n))) }))
+            .map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { map.as_ref().and_then(|_| Some(rows[i].bake.as_ref()?.get_at(seed, n, gen))) }))
             .enumerate()
             .map(|(i, (n, m))| match m {
                 Some(m) if lazy && lazy_row(rows, i) => (n, Source::Later(m.hash)),

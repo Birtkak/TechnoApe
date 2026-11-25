@@ -35,7 +35,14 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Instant;
 
 /// Changes whenever this bake makes other ground or bytes: 200 + its own version.
-pub const VERSION: u32 = 201;
+pub const VERSION: u32 = 202;
+/// The version before the domes (`bodies::Planet::cones`): the shields round cones, the map of a world before
+/// generation 15 (`world::HILL_COUNTRY`).
+pub const CONES: u32 = 201;
+/// Whether `version` is a map of a planet's crust (today's or the cones').
+pub fn is(version: u32) -> bool {
+    version == VERSION || version == CONES
+}
 
 /// The kinds, after Luna's (rows of `data/biomes.toml` to come, with the run that puts the planet in the world).
 pub const HIGHLAND: u8 = 22;
@@ -166,7 +173,8 @@ pub struct Work {
     rivers: Vec<Reach>,
     stats: Stats,
     t0: Instant,
-    /// The shields as broad lobed domes (map version 202, world generation 15); false: the round cones before.
+    /// The shields as broad lobed domes (map version 202, world generation 15, ADR 0207); false: the round cones
+    /// before (`CONES`).
     pub domes: bool,
 }
 
@@ -181,6 +189,10 @@ impl Work {
 /// The bake of a list (`super::check`ed for a planet) on a planet's crust, the stages in its order, and what it
 /// measured; `age` is the row's (`bodies::Planet`).
 pub fn run(stages: &[Stage], seed: i32, n: i32, age: f64) -> (Map, Stats) {
+    run_as(stages, seed, n, age, true)
+}
+/// `run` with the shields as domes, or as the cones of the maps before version 202.
+pub fn run_as(stages: &[Stage], seed: i32, n: i32, age: f64, domes: bool) -> (Map, Stats) {
     use Stage::*;
     super::check(stages, false).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
     assert_eq!(stages[0], Crust, "a planet's crust");
@@ -198,6 +210,7 @@ pub fn run(stages: &[Stage], seed: i32, n: i32, age: f64) -> (Map, Stats) {
     say(0);
     let mut lap = Instant::now();
     let mut w = crust(seed, n);
+    w.domes = domes;
     w.stats.stages.push(("crust", lap.elapsed().as_secs_f64()));
     for (k, &st) in stages.iter().enumerate().skip(1) {
         say(k);
@@ -220,7 +233,6 @@ pub fn crust(seed: i32, n: i32) -> Work {
     let t0 = Instant::now();
     let m = (n / CELL).max(4) as usize;
     let r = n as f64 / (2.0 * PI / 3.0).sqrt();
-    let domes = true;
     let mut rng = Rng::new(seed as u32 as u64 ^ 0x4d61_7273);
     let north = (DVec3::Z + rng.dir() * 0.45).normalize();
     let theta0 = (1.0 - 2.0 * SHARE).acos();
@@ -242,7 +254,7 @@ pub fn crust(seed: i32, n: i32) -> Work {
     let land = Land { h: cells.iter().map(|c| c.0).collect(), kind: low.iter().map(|&l| if l { PLAIN } else { HIGHLAND }).collect(), g, r };
     let age = low.iter().map(|&l| if l { T_PLAINS } else { 0.0 }).collect();
     let stats = Stats { north, ..Stats::default() };
-    Work { seed, n, r, rng, land, age, low, north, theta0, craters: Vec::new(), young: Vec::new(), canyon: Vec::new(), tubes: Vec::new(), rivers: Vec::new(), stats, t0, domes }
+    Work { seed, n, r, rng, land, age, low, north, theta0, craters: Vec::new(), young: Vec::new(), canyon: Vec::new(), tubes: Vec::new(), rivers: Vec::new(), stats, t0, domes: true }
 }
 
 /// A giant basin: a deep flat floor, steep walls and a broad low rim, older than everything on it.
@@ -724,6 +736,7 @@ pub fn ice(w: &mut Work) {
 impl Work {
     /// The map of what the stages made, and what they measured.
     pub fn finish(self) -> (Map, Stats) {
+        let version = if self.domes { VERSION } else { CONES };
         let Work { seed, n, land, age, low, craters, tubes, rivers, mut stats, t0, .. } = self;
         // which craters can still be seen: youngest first, a crater hides under a younger, wider one over its middle
         // and under ground made after it
@@ -751,7 +764,7 @@ impl Work {
         }
         stats.lowland = lowland / all;
         let spawn = luna::spawn(&land, CELL);
-        let mut map = Map { version: VERSION, seed, n, m: land.g.m as u32, h: land.h, biome: land.kind, spawn, rivers, tubes, ..Map::empty() };
+        let mut map = Map { version, seed, n, m: land.g.m as u32, h: land.h, biome: land.kind, spawn, rivers, tubes, ..Map::empty() };
         map.finish(&map.to_bytes());
         stats.seconds = t0.elapsed().as_secs_f64();
         eprintln!("[bake] a planet's crust of seed {seed} planet {n}: {:.1} s", stats.seconds);
@@ -775,7 +788,7 @@ pub fn file(stages: &[Stage], seed: i32, n: i32, p: &Planet) -> PathBuf {
 
 /// The map version a named bake makes: a planet's crust's, or an icy body's (`bake::icy`).
 pub fn version(p: &Planet) -> u32 {
-    if p.icy.is_some() { super::icy::VERSION } else { VERSION }
+    if p.icy.is_some() { super::icy::VERSION } else if p.cones { CONES } else { VERSION }
 }
 
 /// Maps of planets' crusts in memory, by file.
@@ -791,7 +804,7 @@ pub fn get(stages: &[Stage], seed: i32, n: i32, p: &Planet) -> Arc<Map> {
         Some(m) => remember(path, m),
         None => match p.icy {
             Some(high) => keep(stages, seed, n, p, super::icy::run(stages, seed, n, high).0),
-            None => keep(stages, seed, n, p, run(stages, seed, n, p.age).0),
+            None => keep(stages, seed, n, p, run_as(stages, seed, n, p.age, !p.cones).0),
         },
     }
 }
@@ -807,6 +820,7 @@ pub fn keep(stages: &[Stage], seed: i32, n: i32, p: &Planet, map: Map) -> Arc<Ma
 /// bakes a planet's crust: what `bake::find` gives a client before it asks the server for a map.
 pub fn find(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     planets().find_map(|(s, p)| {
+        let p = &p;
         let path = file(s, seed, n, p);
         let kept = KEPT.lock().unwrap().get(&path).and_then(Weak::upgrade);
         match kept {
@@ -822,12 +836,16 @@ pub fn find(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
 /// of either needs the map to name its row.
 pub fn keep_any(map: Map) -> Arc<Map> {
     let (s, p) = planets().find(|(_, p)| version(p) == map.version).expect("a planet's map, so a row that bakes one");
-    keep(s, map.seed, map.n, p, map)
+    keep(s, map.seed, map.n, &p, map)
 }
 
 /// The rows' stage lists and rows that bake a planet's crust.
-fn planets() -> impl Iterator<Item = (&'static [Stage], &'static Planet)> {
-    crate::bodies::BODIES.iter().filter_map(|r| r.bake.as_ref().and_then(|b| Some((&b.0[..], b.2.as_ref()?))))
+/// (A planet's row twice: as its maps are baked today, and with its shields the cones of the maps before 202.)
+fn planets() -> impl Iterator<Item = (&'static [Stage], Planet)> {
+    crate::bodies::BODIES.iter().filter_map(|r| r.bake.as_ref().and_then(|b| Some((&b.0[..], b.2.as_ref()?)))).flat_map(|(s, p)| {
+        let old = (p.icy.is_none() && !p.cones).then(|| (s, Planet { cones: true, ..p.clone() }));
+        std::iter::once((s, p.clone())).chain(old)
+    })
 }
 
 fn remember(path: PathBuf, map: Map) -> Arc<Map> {
@@ -875,11 +893,12 @@ mod tests {
 
     const MARS: [Stage; 5] = [Stage::Crust, Stage::Impacts, Stage::Volcanism, Stage::Erosion, Stage::Ice];
 
-    /// One bake of (seed, n) for the tests that only read it.
+    /// One bake of (seed, n) for the tests that only read it: the map of version 201 (`CONES`, the shields before the
+    /// domes), which these tests' pinned hashes and the worlds of generation 5 they make are of.
     fn shared(seed: i32, n: i32) -> Arc<(Map, Stats)> {
         static MAPS: LazyLock<Mutex<HashMap<(i32, i32), Arc<std::sync::OnceLock<Arc<(Map, Stats)>>>>>> = LazyLock::new(Mutex::default);
         let cell = MAPS.lock().unwrap().entry((seed, n)).or_default().clone();
-        cell.get_or_init(|| Arc::new(run(&MARS, seed, n, 1.0))).clone()
+        cell.get_or_init(|| Arc::new(run_as(&MARS, seed, n, 1.0, false))).clone()
     }
 
     /// The heights stay within the world's columns at every size of planet: what scales with the body (the basins,
@@ -895,8 +914,33 @@ mod tests {
         }
     }
 
+    /// A dome's foot is no circle (ADR 0207): round the giant at its radius some of the ground is the shield's and
+    /// some is not, where a cone's foot was all of it just inside and none just outside; the summit is as high.
+    #[test]
+    fn a_domes_foot_runs_out_in_lobes() {
+        let share = |domes: bool, k: f64| {
+            let (m, s) = run_as(&MARS, 1337, 3328, 1.0, domes);
+            let g = Grid::new(m.m as usize, 3328.0 / (2.0 * PI / 3.0).sqrt());
+            let sh = s.shields.iter().find(|s| s.giant).unwrap();
+            let on = (0..256).filter(|&a| {
+                let a = a as f64 / 256.0 * TAU;
+                m.biome[g.locate(toward(sh.c, east(sh.c) * a.cos() + northward(sh.c) * a.sin(), k * sh.radius / g.r)) as usize] == SHIELD
+            });
+            (on.count() as f64 / 256.0, sh.summit)
+        };
+        let (cone_in, cone_out, dome) = (share(false, 0.9), share(false, 1.03), share(true, 0.95));
+        assert!(cone_in.0 > 0.95 && cone_out.0 < 0.05, "a cone's foot is a circle: {} inside, {} outside", cone_in.0, cone_out.0);
+        assert!(dome.0 > 0.2 && dome.0 < 0.8, "a dome's foot at 0.95 of its radius: {} of the way round is shield", dome.0);
+        assert!((dome.1 - cone_in.1).abs() < 15.0, "the summit {} against {}", dome.1, cone_in.1);
+        // and the domes' map keeps what every map of Mars does: its heights in the world's columns, its tubes on shields
+        let m = run_as(&MARS, 1337, 3328, 1.0, true).0;
+        let (lo, hi) = m.h.iter().fold((f32::MAX, f32::MIN), |(a, b), &h| (a.min(h), b.max(h)));
+        assert!(m.version == VERSION && lo >= -56.0 && hi < 378.0, "version {}, heights {lo:.1} to {hi:.1}", m.version);
+        assert!(!m.tubes.is_empty() && m.tubes.iter().all(|t| m.biome[t.0 as usize] == SHIELD), "a tube off the shields");
+    }
+
     fn planet() -> Planet {
-        Planet { name: "Mars".into(), age: 1.0, icy: None }
+        Planet { name: "Mars".into(), age: 1.0, icy: None, cones: false }
     }
 
     /// The bake is the same twice, reads back from its bytes, and is kept under its own name: read back from that
@@ -909,12 +953,13 @@ mod tests {
         assert_eq!(a.hash, b.hash, "deterministic");
         let back = Map::from_bytes(&a.to_bytes()).unwrap();
         assert_eq!((back.hash, back.version, &back.tubes, back.rivers.len(), &back.biome), (a.hash, VERSION, &a.tubes, a.rivers.len(), &a.biome));
+        assert_eq!(version(&Planet { cones: true, ..planet() }), CONES, "a world before generation 15 keeps the cones' map");
         assert!(!a.tubes.is_empty() && !a.rivers.is_empty());
         let mut odd = Map::from_bytes(&a.to_bytes()).unwrap();
         odd.biome[0] = HIGHLAND - 1;
         assert!(Map::from_bytes(&odd.to_bytes()).is_err(), "a kind outside a planet's crust's is refused");
         let path = file(&MARS, seed, n, &planet());
-        assert_eq!(path.file_name().unwrap().to_str().unwrap(), format!("seed--4242-planet-832-mars-{:08x}-v201.map", crate::world::fnv(crate::world::FNV0, b"[Crust, Impacts, Volcanism, Erosion, Ice] 1.0") as u32));
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), format!("seed--4242-planet-832-mars-{:08x}-v202.map", crate::world::fnv(crate::world::FNV0, b"[Crust, Impacts, Volcanism, Erosion, Ice] 1.0") as u32));
         assert_ne!(path, file(&MARS[..4], seed, n, &planet()), "another list, another file");
         assert_ne!(path, file(&MARS, seed, n, &Planet { age: 0.5, ..planet() }), "another age, another file");
         assert!(![super::super::file(seed, n), luna::file(seed, n)].contains(&path));
@@ -1037,7 +1082,7 @@ mod tests {
         use crate::world::Block;
         let w = world();
         let b = &w.bodies[2];
-        assert_eq!((b.name.as_str(), b.map().map(|m| m.version), b.sea, b.caves.len(), b.ores.len()), ("Mars", Some(VERSION), None, 0, 0));
+        assert_eq!((b.name.as_str(), b.map().map(|m| m.version), b.sea, b.caves.len(), b.ores.len()), ("Mars", Some(CONES), None, 0, 0));
         let (mut seen, mut tops) = ([0usize; 11], [false; 11]);
         let n = 832;
         for c in (0..6 * n * n).step_by(53) {

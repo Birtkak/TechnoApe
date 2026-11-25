@@ -89,13 +89,14 @@ map by hash. A map is kept in the file of its own version, in the bytes of its o
   `World::baked` and `Server::baked` [0043]. A world saved on a v2 map before ADR 0058 moved under its edits (the hash is
   unchanged so it is not detected; accepted, v2 was a day old) [0058].
 
-### Hill country: the land inside the continents stands higher [0207, 2026-11-25]
+### Hill country, and Mars's shields as domes: world generation 15 [0207, 2026-11-25]
 The developer: "make planets more irregular and hilly all over the board so our huge volcano and mountains don't
 look so much out of place". Measured first: the bigger the planet, the flatter its land. The ranges and the peaks'
 stretch (ADR 0105) are in metres, the continents grow with the planet, and the heights are scaled by the one
 highest peak: on the 8 km planet 99 % of the land lay under 47 m beside peaks of 350 m (52 m on the 4 km planet),
-and nothing under 45 m was stretched. From map version 11 (it joins generation 14, which no world had been made
-with):
+and nothing under 45 m was stretched. From map version 12, world generation 15 (`world::HILL_COUNTRY`; the build
+handed over on the morning of 2026-11-25 made worlds of generation 14, which keep their map of version 11, the
+coarse year on the land before the hills, `Map::bake_v11`):
 - **The shields rise as high as a range** (`shield_uplift` 1.0, was 0.35), so the rivers cut uplands inside the
   continents instead of plains.
 - **Hill country** (`hills` 2.0, `hill_m` 700): uplift in ridges 700 m apart, in metres on every planet, stronger
@@ -109,13 +110,27 @@ cell in a hundred over 171 m (was 47); on the 4 km planet 25, 109 and 207 m (wer
 inside 130 m at the middle cell goes from 12 m to 33 m on the 8 km planet. The land is colder for it: tundra 2.4 %
 of the planet from 0.3, ice 8.0 from 6.3, wetland 0.4 from 1.6; the spawn is elsewhere. Small planets were rugged
 already and change little (the 1536 one: a tenth of the land over 108 m, was 104).
-Older maps are baked as before (`land::Params::before_hills`, pinned to the bit). Looked at in shots from the
+**Mars's shields are domes** (the developer, the same day: "mars it's mountains look not right too"). His four
+shields were round cones, smooth, 27 degrees steep, each ending in a circle, laid over one another like discs.
+From his map of version 202 (the same generation 15) a shield is a dome: flat on top, steepest two thirds out,
+level where it meets the plain and lying on the ground as it is there; a third wider (the giant a quarter) for
+the same height; its foot runs out in lobes of a few hundred metres and tongues of 90 m; flows 2.5 m high run
+down the flank. Summits, calderas, the giant's scarp and the tubes are where they were. A world before
+generation 15 keeps the cones (`mars::CONES`, version 201, `bodies::Planet::cones`, the existing pinned hashes).
+Seen on the bake's height picture (`out/mars/shields-cmp.png`), not in the game: that side of Mars was in its
+night for a stand shot.
+Older maps are baked as before (`land::Params::before_hills`, pinned to the bit). With it, a fix: a game
+joining a server from the title checked the fetched maps under today's file names, so a world of an older
+generation was refused as "could not be kept" (`Bake::file_at`, by the welcome's generation). Looked at in shots from the
 ground and from 350 m up at two places (`out/hills/`), not yet in play.
 Alternatives not taken: noise laid on the eroded land (rivers would run uphill and every dip would be a pond); a
 lower `mountain_m` (the peaks are the developer's call of 2026-11-11). Open: the strength is taste (the four
 numbers above are the knobs); the steepest tenth of the land is now steeper than 136 % between 8 m cells on the
 8 km planet (was 42 %), which is climbing, not walking; the map's lakes count 39,543 against 6,721 on the 4 km
-planet and were not looked into; Luna, Mars and the icy moon have their own bakes and are as they were.
+planet and were not looked into; a walker following the longest river of the 1536 test planet is stopped a
+third of the way down, where the bed is two blocks wide and a tree stands at its edge (that test runs on the
+land before the hills); Mars's highlands are as flat as they were (35 m, craters only); Luna and the icy moon
+are as they were.
 
 ### The bake's year on an air grid twice as coarse [0204, 2026-11-25]
 A new world's minutes were its climate's year of weather: real gravity's year (ADR 0181) is 334 days on the 4 km

@@ -64,7 +64,7 @@ pub fn report(w: &World) -> String {
     // every other body on a planet's crust (Mars, generation 5) or an icy one (the giant's moon, 7): its kinds,
     // heights and the tubes its map marks
     let mut out = out;
-    for p in w.bodies.iter().filter(|b| b.map().is_some_and(|m| m.version == engine::bake::mars::VERSION || m.version == engine::bake::icy::VERSION)) {
+    for p in w.bodies.iter().filter(|b| b.map().is_some_and(|m| engine::bake::mars::is(m.version) || m.version == engine::bake::icy::VERSION)) {
         out = format!("{}, \"{}\": {}}}", &out[..out.len() - 1], p.name.to_lowercase(), planet(p));
     }
     out
