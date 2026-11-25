@@ -225,7 +225,7 @@ impl Body {
             return (i, j);
         }
         let h = self.n as f64 * 0.5;
-        let (v, _) = crate::warp::at((i - h) / h, (j - h) / h);
+        let v = crate::warp::value((i - h) / h, (j - h) / h);
         (i + self.warp * h * v[0], j + self.warp * h * v[1])
     }
     /// `warp_col`'s inverse: the block grid's point at the equi-angular grid's point (i, j).

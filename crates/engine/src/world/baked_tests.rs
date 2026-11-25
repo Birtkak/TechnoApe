@@ -15,6 +15,14 @@ fn the_512_planets_table_settles() {
     assert!(sweeps > 0 && (sweeps as usize) < crate::bake::ground::SWEEPS && (residual as f64) < crate::bake::ground::TOL, "{sweeps} sweeps, residual {residual} m");
 }
 
+/// The table is solved on no more cells a face edge than the map has: the 512 planet's map has 64, and on the 160
+/// of the big planets it took 4,650 sweeps and 85 s of every test run that bakes it.
+#[test]
+fn a_small_planets_table_is_solved_on_its_own_cells() {
+    let (sweeps, _) = MAP.solve;
+    assert!(sweeps < 3500, "{sweeps} sweeps for 64 cells a face edge");
+}
+
 /// On the warped grid a cave reaches as far sideways in metres as on the old one: its reach in columns is its
 /// radius over the column's width where it lies, its height in layers as it was (near a corner a tube was a third
 /// as wide as it was high; the review of generation 13).
@@ -2180,4 +2188,31 @@ fn open_water_down_a_shaft_on_rock_under_its_boiling_point_rests_under_freezing_
     }
     let rock = w.bodies[0].heat(c.face(), c.i(), c.j(), z0 as f64).unwrap();
     assert_eq!((w.water.total(), w.water.vapour.len(), w.water.froze.len()), (units, 0, 0), "on {rock} C rock: liquid, nothing boiled or frozen");
+}
+
+/// What a height tile costs to build on the old grid and on the conformal one, one thread, level 0, the best of
+/// three passes over footprints never built before
+/// (cargo test -p engine --profile play --lib tile_cost -- --ignored --nocapture).
+#[test]
+#[ignore]
+fn tile_cost() {
+    for gen in [12, GENERATION] {
+        let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, gen);
+        let b = &w.bodies[0];
+        let mut best = f64::MAX;
+        for pass in 0..3 {
+            let t = std::time::Instant::now();
+            let mut n = 0;
+            for f in 0..6u8 {
+                for k in 0..120 {
+                    // spread over the face, a new footprint every pass
+                    let (x, y) = ((k * 7 + pass * 3) % 48, (k * 13 + pass * 5 + f as i32) % 48);
+                    std::hint::black_box(b.build_tile(f as usize, 0, x, y));
+                    n += 1;
+                }
+            }
+            best = best.min(t.elapsed().as_secs_f64() * 1e6 / n as f64);
+        }
+        println!("{{\"tile_cost\":{{\"generation\":{gen},\"warp\":{},\"us_a_tile\":{best:.1}}}}}", b.warp);
+    }
 }

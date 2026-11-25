@@ -41,9 +41,24 @@ pub fn at(a: f64, b: f64) -> ([f64; 2], [[f64; 2]; 2]) {
     ([sa * v(0), sb * v(1)], [[da(0), s * da(1)], [s * db(0), db(1)]])
 }
 
+/// `at`'s (da, db) alone, to the same bits: what every map read of a column asks (some twenty a column of a
+/// height tile), without the four derivatives only `unwarp`'s Newton steps use.
+pub fn value(a: f64, b: f64) -> [f64; 2] {
+    let t = &*TABLE;
+    let h = (N - 1) as f64 * 0.5;
+    let (sa, sb) = (if a < 0.0 { -1.0 } else { 1.0 }, if b < 0.0 { -1.0 } else { 1.0 });
+    let (x, y) = ((a.abs().min(1.0) + 1.0) * h, (b.abs().min(1.0) + 1.0) * h);
+    let (i0, j0) = ((x.floor() as usize).min(N - 2), (y.floor() as usize).min(N - 2));
+    let (fx, fy) = (x - i0 as f64, y - j0 as f64);
+    let (r0, r1) = (&t[i0 * N + j0..i0 * N + j0 + 2], &t[(i0 + 1) * N + j0..(i0 + 1) * N + j0 + 2]);
+    let mix = |u: f64, v: f64, f: f64| u * (1.0 - f) + v * f;
+    let v = |k: usize| mix(mix(r0[0][k], r1[0][k], fx), mix(r0[1][k], r1[1][k], fx), fy);
+    [sa * v(0), sb * v(1)]
+}
+
 /// (a, b) warped with strength w.
 pub fn warp(a: f64, b: f64, w: f64) -> (f64, f64) {
-    let (v, _) = at(a, b);
+    let v = value(a, b);
     (a + w * v[0], b + w * v[1])
 }
 
@@ -238,6 +253,19 @@ mod tests {
     }
 
     /// The table's derivatives are the bilinear's own, and `unwarp` inverts `warp` (to 1e-12 of a face).
+    /// `value` is `at`'s first half to the bit, over the face, past its edges and at mirrored points.
+    #[test]
+    fn value_is_ats_value_to_the_bit() {
+        for k in 0..20_000u32 {
+            let f = |s: u32| (k.wrapping_mul(s) % 240_001) as f64 / 100_000.0 - 1.2;
+            let (a, b) = (f(2_654_435_761), f(40_503));
+            for (a, b) in [(a, b), (-a, b), (a, -b), (b, a)] {
+                let (want, got) = (super::at(a, b).0, super::value(a, b));
+                assert_eq!((got[0].to_bits(), got[1].to_bits()), (want[0].to_bits(), want[1].to_bits()), "at {a} {b}");
+            }
+        }
+    }
+
     #[test]
     fn the_table_inverts() {
         for (a, b) in [(0.0, 0.0), (0.3, -0.7), (-0.99, 0.98), (0.999, 0.999), (1.0, -0.2), (-0.5, -1.0), (0.01, 0.6)] {
