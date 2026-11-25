@@ -95,6 +95,7 @@ tried. Newest first; strike a line out when it is done.
   +0.2). Now a body that moved under a millimetre is not built again (`proxy::same`): stand 1.62 -> 1.03 ms of the
   frame thread. A player who walks still rebuilds it every frame: the second, small TLAS for the bodies (`rt.rs`'s
   shortcut note) is the fix if a crowd shows in the cost.
+- **The orbit run's spike at 3 s (2026-11-25).** `run=orbit quick=1` alone on the PC, two runs: frame_max 45.6 / 44.3 ms, p99 11.2 / 9.5 (budget 8.3 / 16.7); the slow frames bunch at 3.03-3.11 s each time, and it was there on e7ce82bf too. Not looked into: time the frame's stages around 3 s to name it.
 - **The fly run's `select` (2026-11-25).** 1.1 ms of the old baseline's build and 1.5-1.6 now, the bulk of fly's
   frame thread; not looked into.
 
