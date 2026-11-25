@@ -40,7 +40,7 @@ pub struct Gi {
     composite: wgpu::RenderPipeline,
     clouds: wgpu::RenderPipeline,
     /// The clouds at half resolution (draft "Clouds at half resolution"): the march's pipeline, the upsample's, the two targets (colour;
-    /// start, end and reach) and the upsample's group 1 that reads them.
+    /// the two distances and what is hidden up to each, in 32-bit floats: an orbit is far) and the upsample's group 1 that reads them.
     clouds_half: wgpu::RenderPipeline,
     clouds_up: wgpu::RenderPipeline,
     cloud_half: [wgpu::TextureView; 2],
@@ -333,14 +333,14 @@ impl Gi {
             multiview_mask: None,
             cache: None,
         });
-        // the clouds at half resolution (draft "Clouds at half resolution", post.wgsl fs_clouds_half): their colour, and where each ray's
-        // cloud starts and ends and how far it went; then the upsample onto the screen in the full pass's place
-        let cloud_half = [tex_at("clouds-half", f16, rt, (w.div_ceil(2), h.div_ceil(2))), tex_at("clouds-span", f16, rt, (w.div_ceil(2), h.div_ceil(2)))];
+        // the clouds at half resolution (draft "Clouds at half resolution", post.wgsl fs_clouds_half): their colour, and each ray's two
+        // distances with what the clouds hide up to each; then the upsample onto the screen in the full pass's place
+        let cloud_half = [tex_at("clouds-half", f16, rt, (w.div_ceil(2), h.div_ceil(2))), tex_at("clouds-span", wgpu::TextureFormat::Rgba32Float, rt, (w.div_ceil(2), h.div_ceil(2)))];
         let clouds_half = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("clouds-half"),
             layout: Some(&clayout),
             vertex: wgpu::VertexState { module: &post, entry_point: Some("vs_composite"), buffers: &[], compilation_options: Default::default() },
-            fragment: Some(wgpu::FragmentState { module: &post, entry_point: Some("fs_clouds_half"), targets: &[Some(f16.into()), Some(f16.into())], compilation_options: Default::default() }),
+            fragment: Some(wgpu::FragmentState { module: &post, entry_point: Some("fs_clouds_half"), targets: &[Some(f16.into()), Some(wgpu::TextureFormat::Rgba32Float.into())], compilation_options: Default::default() }),
             primitive: Default::default(),
             depth_stencil: None,
             multisample: Default::default(),

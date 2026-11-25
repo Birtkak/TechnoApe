@@ -1195,6 +1195,8 @@ impl App {
             cl[8][1] = 0.0;
         }
         let aurora_on = cl[8][1] > 0.0;
+        // where `clouds` (post.wgsl) draws none at all its passes are not run: no map yet, or the camera under the sea level
+        let clouds_seen = clouds_on && cl[7][3] > 0.0 && v3(cl[0]).length() >= cl[0][3];
         // the traced scene's lanes (step 6b): the bodies with chunks or players in it, nearest first; a ray on a body
         // reads its lane from rot1.w
         {
@@ -1428,7 +1430,7 @@ impl App {
             // the clouds' march at half resolution (draft "Clouds at half resolution"), counted in the screen's stage as the full march is;
             // `clouds_res=full` keeps the march per pixel to compare
             let clouds_half = self.args.0.get("clouds_res").is_none_or(|v| v != "full");
-            if clouds_on && clouds_half {
+            if clouds_seen && clouds_half {
                 gi.clouds_half(&mut enc);
             }
             // the screen: direct and bounced light, then the water and the overlays over it
@@ -1479,8 +1481,8 @@ impl App {
                     }
                 }
             }
-            if clouds_on || aurora_on {
-                gi.clouds(&mut rp, clouds_on && clouds_half);
+            if clouds_seen || aurora_on {
+                gi.clouds(&mut rp, clouds_seen && clouds_half);
                 // the ghost and the hud after it draw with the globals at group 0 again
                 rp.set_bind_group(0, &gpu.bind, &[]);
             }
