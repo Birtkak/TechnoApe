@@ -325,12 +325,21 @@ pub fn climate(b: &Bake, p: &LifeParams) -> Year {
         // and snow (what is counted by its share of the area), then the grid runs `air_settle` days at its own
         // size into world time 0, so its winds and its own columns' land and water are its own
         let parent: Vec<usize> = (0..ga.n() as u32).map(|c| gb.locate(ga.d(c)) as usize).collect();
+        // what lies on the ground (soil water, snow, dirt come down) is laid by the square metre of land: a live
+        // column's land holds what its coarse column's land held on as much ground, so soil a year left full is full.
+        // (By area alone a column of land beside the sea began drier than that; by the coarse column's share among
+        // the live columns whose middles lie in it, the 1536 planet's 12 cells on 8 left half its land short of
+        // full, and soil short of full gives the rivers no runoff: the save-mid-rain test waited 50 minutes of
+        // rain for none.)
         for c in 0..ga.n() {
             let k = parent[c];
             let share = (air.area[c] / airb.area[k]) as f64;
             let part = |v: u32| (v as f64 * share) as u32;
+            let (mine, its) = (air.area[c] as f64 * (1.0 - air.water[c] as f64), airb.area[k] as f64 * (1.0 - airb.water[k] as f64));
+            let land = if its > 0.0 { mine / its } else { 0.0 };
+            let lies = |v: u32| (v as f64 * land) as u32;
             air.tg[c] = airb.tg[k];
-            (air.soil[c], air.snow[c], air.dirt_down[c]) = (part(airb.soil[k]), part(airb.snow[k]), part(airb.dirt_down[k]));
+            (air.soil[c], air.snow[c], air.dirt_down[c]) = (lies(airb.soil[k]), lies(airb.snow[k]), lies(airb.dirt_down[k]));
             for l in 0..super::air::LAYERS {
                 let (i, j) = (c * super::air::LAYERS + l, k * super::air::LAYERS + l);
                 air.theta[i] = airb.theta[j];

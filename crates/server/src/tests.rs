@@ -221,7 +221,11 @@ fn the_live_rain_feeds_the_rivers_and_both_ledgers_hold() {
 /// server hands over that job's runoff when the running one does, and its water and air stay the same.
 #[test]
 fn a_save_mid_rain_carries_on_to_the_same_water() {
-    let mut s = Server::baked(1536, 32, 7, channel().1);
+    // (a world of generation 13: on this small planet a landing hands a reach rain only where a column's runoff
+    // times the reach's share reaches a whole unit, and one reach did, barely; generation 14's coarser year spreads
+    // the same runoff, 121,600 units a landing against 124,100, more evenly, 5,800 at most a column against 8,650,
+    // and none does. What is tested is the save, not the climate.)
+    let mut s = Server::baked_warp(1536, 32, 7, 0.0, 13, channel().1);
     while s.world.water.rain_held.is_empty() || s.tick % 200 != 10 {
         s.tick();
         assert!(s.tick < 3000, "no rain in the reaches");
@@ -1752,7 +1756,8 @@ fn a_take_aimed_at_a_thing_takes_it_and_one_aimed_past_it_does_not() {
             if pickup_at(w, side, 0.0).is_some() || aim_thing(w, &still, eye, dir, 8.0, 0.0, 0.0, |_, _| true).is_some() {
                 continue;
             }
-            if let Some((_, before)) = engine::edit::aim(w, eye, dir, 8.0) {
+            // (nothing in that cell either: a take there cuts a plant the ray passed beside)
+            if let Some((_, before)) = engine::edit::aim(w, eye, dir, 8.0).filter(|(_, b)| engine::clutter::thing_at(w, *b, 0.0, engine::clutter::VEGETATION[engine::clutter::VEGETATION.len() - 1], false, |_, _| true).is_none()) {
                 found = Some((at, th, eye - up * engine::phys::EYE, before));
                 break 'search;
             }
@@ -4845,7 +4850,9 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
         if kind == engine::fluids::WATER {
             // (the hole lies under the table: its water trades with the aquifer, ADR 0190, whose tail is the last)
             assert!(snap.ground != save::GroundTail::default(), "the dug hole's water touched the aquifer");
-            let snap = Save { ground: Default::default(), ..snap };
+            // (and its stored columns' generated shares, the tail after it: kept so a load counts the water as it was)
+            assert_eq!(snap.gens.len(), snap.water.len(), "a generated share a stored column");
+            let snap = Save { ground: Default::default(), gens: Vec::new(), ..snap };
             assert!(snap.heat == save::Heat::default() && snap.to_bytes() == postcard::to_allocvec(&snap).unwrap(), "water alone: the layout's bytes");
             continue;
         }
@@ -5005,6 +5012,8 @@ fn a_chamber_survives_a_save_and_a_save_without_it_loads() {
     }
     assert!(!s.world.water.chambers[k].1, "and ended");
     let tail = postcard::to_allocvec(&snap.chambers).unwrap();
+    // (an old save ends before the chambers: without the stored columns' generated shares, a later tail, either)
+    let bytes = Save { gens: Vec::new(), ..snap }.to_bytes();
     let old = Server::from_save(Save::from_bytes(&bytes[..bytes.len() - tail.len()]).unwrap(), channel().1);
     assert!(old.world.water.chambers.is_empty() && old.world.water.erupted == 0, "an old save: no chambers");
     assert_eq!(old.world.chamber(k).map(|c| c.fill), Server::baked(768, engine::bodies::moon_columns(768), 3, channel().1).world.chamber(k).map(|c| c.fill), "where the seed starts it");
@@ -5161,11 +5170,8 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     let snow = BLOCKS.id("snow");
     let mut t = 0;
     while s.world.block(green_b) != snow && t < 120 * TICK_HZ as u64 {
-        let parts = |s: &Server| { let w = &s.world.water; (w.counted(), w.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0), w.froze.get(&engine::fluids::WATER).copied().unwrap_or(0), s.world.snow.held(), s.world.snow.lent, s.made, s.removed, w.rained, w.sea_extra, s.world.snow.owing()) }; // DEBUG
-        let before = parts(&s); // DEBUG
         s.tick();
         t += 1;
-        if s.water_ledger() != 0 { eprintln!("DEBUG tick {} t {t}: (counted, steam, ice, snow held, lent, made, removed, rained, sea_extra, owing) before {:?} after {:?}", s.tick, before, parts(&s)); } // DEBUG
         assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
     }
     assert_eq!((s.world.block(green_b), plant(&s, green_b)), (snow, None), "a block of snow over the plant, the plant not drawn");
