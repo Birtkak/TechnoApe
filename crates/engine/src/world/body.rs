@@ -126,7 +126,10 @@ impl Body {
         // the scored spawn, moved to the nearest column with no plant within a step
         let (f, x, y) = self.locate(spawn);
         let (i0, j0) = (x as i32, y as i32);
-        let clear = |i: i32, j: i32| (-1..=1).all(|a| (-1..=1).all(|b| self.col_plants(f as u8, i + a, j + b).is_empty()));
+        // (from generation 15 also a column a block and a half over the sea: on hill country the nearest clear column
+        // of a forest by the shore was the beach, 0.6 m over the water on the 512 planet of seed 5)
+        let dry = |i: i32, j: i32| self.gen < HILL_COUNTRY || self.sea.is_none_or(|sea| self.first_air(self.col_height(f as u8, i, j)) as f64 > sea + 1.5);
+        let clear = |i: i32, j: i32| dry(i, j) && (-1..=1).all(|a| (-1..=1).all(|b| self.col_plants(f as u8, i + a, j + b).is_empty()));
         let at = (0..=12).flat_map(|r| (-r..=r).flat_map(move |a| (-r..=r).map(move |b| (a, b))).filter(move |(a, b): &(i32, i32)| a.abs().max(b.abs()) == r)).find(|(a, b)| clear(i0 + a, j0 + b));
         let (a, b) = at.unwrap_or((0, 0));
         self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);

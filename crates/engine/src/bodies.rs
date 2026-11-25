@@ -65,7 +65,8 @@ impl Bake {
     pub fn for_hash(&self, seed: i32, n: i32, hash: u64) -> Option<std::sync::Arc<crate::bake::Map>> {
         match &self.0[..] {
             // (a planet's crust: as it is baked today, else with the cones of a world before generation 15)
-            _ if self.2.is_some() => Some(self.get(seed, n)).filter(|m| m.hash == hash).or_else(|| Some(self.at(0).get(seed, n)).filter(|m| m.hash == hash)),
+            // (the kept one first, of either version, so a world of the cones bakes no domes on its way to them)
+            _ if self.2.is_some() => crate::bake::mars::find(seed, n, hash).or_else(|| Some(self.get(seed, n)).filter(|m| m.hash == hash)).or_else(|| Some(self.at(0).get(seed, n)).filter(|m| m.hash == hash)),
             s if s == Stage::TERRA => crate::bake::for_hash(seed, n, hash),
             s if s == Stage::LUNA => crate::bake::luna::for_hash(seed, n, hash),
             _ => Some(self.get(seed, n)).filter(|m| m.hash == hash),

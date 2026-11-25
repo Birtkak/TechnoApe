@@ -4938,7 +4938,7 @@ fn an_eruption_on_the_server_comes_the_same_to_the_tick_twice() {
     let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
     let run = || {
         let (tx, rx) = channel();
-        let mut s = Server::baked(768, engine::bodies::moon_columns(768), 3, rx);
+        let mut s = Server::baked(768, engine::bodies::moon_columns(768), 2, rx);
         let (l, sv) = local();
         tx.send(sv).unwrap();
         l.send(ToServer::Chat("/erupt".into()));
@@ -4962,7 +4962,7 @@ fn an_eruption_on_the_server_comes_the_same_to_the_tick_twice() {
 /// tails (the chambers, the heats, what was booked), so the replay's chamber is open and pours as the recorded one.
 #[test]
 fn a_recording_from_a_save_taken_mid_eruption_replays_to_the_same_hash() {
-    let mut s = Server::baked(768, engine::bodies::moon_columns(768), 3, channel().1);
+    let mut s = Server::baked(768, engine::bodies::moon_columns(768), 2, channel().1);
     let k = s.world.force_eruption(s.world.bodies[0].centre).expect("a live volcano");
     while !(s.world.water.chambers[k].1 && s.world.water.erupted > 4 * U && s.tick % TICK_HZ as u64 == 0) {
         s.tick();
@@ -4988,7 +4988,7 @@ fn a_recording_from_a_save_taken_mid_eruption_replays_to_the_same_hash() {
 #[test]
 fn a_chamber_survives_a_save_and_a_save_without_it_loads() {
     let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
-    let mut s = Server::baked(768, engine::bodies::moon_columns(768), 3, channel().1);
+    let mut s = Server::baked(768, engine::bodies::moon_columns(768), 2, channel().1);
     let k = s.world.force_eruption(s.world.bodies[0].centre).expect("a live volcano");
     // (saved on a second, so the loaded server's heat steps, from its tick 0, fall where the running one's do)
     while !(s.world.water.chambers[k].1 && s.world.water.erupted > 4 * U && s.tick % TICK_HZ as u64 == 0) {
@@ -5017,7 +5017,7 @@ fn a_chamber_survives_a_save_and_a_save_without_it_loads() {
     let bytes = Save { gens: Vec::new(), ..snap }.to_bytes();
     let old = Server::from_save(Save::from_bytes(&bytes[..bytes.len() - tail.len()]).unwrap(), channel().1);
     assert!(old.world.water.chambers.is_empty() && old.world.water.erupted == 0, "an old save: no chambers");
-    assert_eq!(old.world.chamber(k).map(|c| c.fill), Server::baked(768, engine::bodies::moon_columns(768), 3, channel().1).world.chamber(k).map(|c| c.fill), "where the seed starts it");
+    assert_eq!(old.world.chamber(k).map(|c| c.fill), Server::baked(768, engine::bodies::moon_columns(768), 2, channel().1).world.chamber(k).map(|c| c.fill), "where the seed starts it");
     let mut quiet = Server::new(256, 32, 1, channel().1);
     for _ in 0..5 * TICK_HZ as usize {
         quiet.tick();

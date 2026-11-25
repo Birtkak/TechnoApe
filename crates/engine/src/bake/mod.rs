@@ -1249,5 +1249,8 @@ mod tests {
             assert!(file_at(5, 256, gen).to_str().unwrap().ends_with(&format!("-v{v}.map")), "{:?}", file_at(5, 256, gen));
         }
         assert_ne!(get_at(5, 256, HILLS).hash, get_at(5, 256, COARSE_AIR).hash, "hill country is another land");
+        // version 11 as the build of the morning of 2026-11-25 baked it (its server's report gave the same ground, made_hash
+        // b7158ebf5fcc1f99, as this code's for gen=14)
+        assert_eq!(format!("{:016x}", Map::bake_v11(5, 256).hash), "60048d69e7042ce8");
     }
 }
