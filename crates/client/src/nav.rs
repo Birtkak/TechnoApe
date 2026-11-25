@@ -193,11 +193,7 @@ pub fn season_name(up: DVec3, t: f64, year: f64) -> &'static str {
 /// Sol as the world poses the home (ADR 0177); the same angle as `Sky::hour_angle`, since body 0's pose is
 /// `Sky::planet` (the review: an earlier note here said that one drifted; it does not).
 pub fn local_hour(w: &engine::world::World, t: f64, up: DVec3) -> f64 {
-    let p = w.pose(0, t);
-    let s = p.rot.inverse() * (w.sky.sun(t) - p.centre);
-    // the hour angle about the spin axis (body +z): 0 at local noon
-    let ha = (s.x * up.y - s.y * up.x).atan2(s.x * up.x + s.y * up.y);
-    (12.0 + ha / std::f64::consts::TAU * 24.0).rem_euclid(24.0)
+    w.local_hour(0, t, up)
 }
 
 /// What Sol does today at body-frame direction `up` when it does not cross the horizon there (`decl` its

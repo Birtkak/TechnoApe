@@ -88,6 +88,15 @@ pub fn near(world: &World, me: Option<(u32, DVec3, DVec3)>, others: &[Player], c
         .collect()
 }
 
+/// Whether the bodies in the traced scene stand where they were built: the same players on the same bodies, none
+/// moved a millimetre or turned more than a thousandth (its axes' parts). A body eased between rosters (ADR 0209)
+/// is given new floats every frame, and the TLAS was built every frame for them (3,200 builds in a quick stand run
+/// for 450 before: 0.3 ms more of the frame thread's `rt` and 0.2 of `submit`).
+pub fn same(now: &[Proxy], built: &[Proxy]) -> bool {
+    // (the place is an f32 from the body's centre: a few of its steps more than that on a big body, past 16 km)
+    now.len() == built.len() && now.iter().zip(built).all(|(a, b)| a.id == b.id && a.body == b.body && a.x.iter().zip(&b.x).all(|(p, q)| (p - q).abs() <= 1e-3f32.max(q.abs() * 4.0 * f32::EPSILON)))
+}
+
 /// What a lamp held by player `id` carries in its `col.w` (shader.wgsl's lamp loop): its holder's place in
 /// `proxies` plus one, so its rays pass through its own body; 0, none, for a lamp no body holds.
 pub fn holder(proxies: &[Proxy], id: u32) -> f32 {
@@ -101,6 +110,23 @@ mod tests {
     fn ape() -> Model {
         let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         engine::models::parse_life("ape.toml", include_str!("../../../data/models/ape.toml"), &pal, &|_| true, &|_| true).unwrap().0
+    }
+
+    /// A body that did not move (a float's noise) leaves the TLAS as built; one that moved, turned or changed is a
+    /// rebuild.
+    #[test]
+    fn a_body_that_stood_still_is_not_built_again() {
+        let p = Proxy { body: 0, x: [1.0, 0.0, 0.0, 1200.25, 0.0, 1.0, 0.0, -3.5, 0.0, 0.0, 1.0, 40.0], id: 7 };
+        let nudged = |k: usize, by: f32| {
+            let mut q = p;
+            q.x[k] += by;
+            q
+        };
+        assert!(same(&[p], &[nudged(3, 0.0001)]), "a tenth of a millimetre");
+        assert!(!same(&[p], &[nudged(3, 0.005)]), "five millimetres");
+        assert!(!same(&[p], &[nudged(0, -0.01)]), "a turn");
+        assert!(!same(&[p], &[Proxy { id: 8, ..p }]), "another player");
+        assert!(!same(&[p], &[]), "one gone");
     }
 
     /// ADR 0119: the ape's parts at rest, one box each, stand on the floor as tall as the player and no wider

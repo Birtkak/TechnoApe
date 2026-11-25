@@ -2453,27 +2453,50 @@ fn chat_reaches_everyone_and_commands_answer_their_sender() {
     let (a, b) = (chat(&links[0]), chat(&links[1]));
     assert_eq!(b, vec!["<ape> hello there".to_string()], "commands answer only their sender");
     assert_eq!(a.len(), 6, "{a:?}");
-    assert!(a[1].starts_with("time set to day 1, 12:00"), "{}", a[1]);
+    assert!(a[1].starts_with("time set to 12:00 here on "), "{}", a[1]);
     assert_eq!((a[2].as_str(), a[3].as_str()), ("gave 5 blue lamp: 5 held", "gave 16 stone: 16 held"));
     assert!(a[5].starts_with("unknown command"));
     s.tick();
-    assert!((s.world.time - sky::DAY / 8.0).abs() < 0.2, "{}", s.world.time);
+    assert!(s.world.time > 0.0 && s.world.time <= sky::DAY + 1.0, "the next noon here: {}", s.world.time);
     let c = &s.clients.iter().find(|c| c.player.name == "ape").unwrap();
     assert!(c.creative && items::count(&c.slots, BLOCKS.id("blue lamp")) == 5 && items::count(&c.slots, BLOCKS.id("stone")) == 16);
     // time runs on from where it was set, and survives a save
-    assert!(s.snapshot().tick as f64 / TICK_HZ > sky::DAY / 8.0);
+    assert!(s.snapshot().tick as f64 / TICK_HZ >= s.world.time - 0.1);
     links[0].send(ToServer::Chat("/time set 10".into()));
     links[0].send(ToServer::Chat("/time".into()));
     s.tick();
     let a = chat(&links[0]);
-    assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:08")), "{a:?}");
+    assert!(a.iter().any(|l| l.contains("(day 1, 09:08 at the spawn")), "{a:?}");
     s.tick();
     assert!((s.world.time - 10.0).abs() < 0.2, "a time before the session's start: {}", s.world.time);
     // a season (ADR 0055): whole days on, so the hour stays; the summer solstice is 13.5 days in
     links[0].send(ToServer::Chat("/time set summer".into()));
     s.tick();
     let a = chat(&links[0]);
-    assert!(a.iter().any(|l| l.starts_with("time set to day 14, 09:08")), "{a:?}");
+    assert!(a.iter().any(|l| l.contains("(day 14, 09:08 at the spawn")), "{a:?}");
+}
+
+/// `/time` is the clock where the player stands, on any body: noon set on the far side of the home and on Luna is
+/// noon there, by the sun.
+#[test]
+fn time_set_noon_is_noon_where_the_player_stands() {
+    let (mut s, links) = server_with(1);
+    links[0].send(ToServer::Hello { name: "ape".into() });
+    s.tick();
+    drain(&links[0]);
+    for (body, dir) in [(0, DVec3::new(-0.3, -0.8, 0.5)), (s.world.moon, DVec3::new(0.2, 0.9, -0.4))] {
+        let up = dir.normalize();
+        let (centre, radius, name) = (s.world.bodies[body].centre, s.world.bodies[body].radius, s.world.bodies[body].name.clone());
+        s.clients[0].phys.pos = centre + up * (radius + 30.0);
+        links[0].send(ToServer::Chat("/time set noon".into()));
+        s.tick();
+        let said: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+        assert!(said.iter().any(|l| l.starts_with(&format!("time set to 12:00 here on {name}"))), "{said:?}");
+        let h = s.world.local_hour(body, s.world.time, up);
+        assert!((h - 12.0).abs() < 0.1, "on {name} it is {h:.2} after noon was set");
+    }
+    // at a pole every hour is the same: no time is found there (the command takes the spawn's clock)
+    assert!(s.world.next_local_hour(0, s.world.time, DVec3::Z, 12.0).is_none());
 }
 
 #[test]

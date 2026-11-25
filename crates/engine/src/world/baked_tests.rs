@@ -245,7 +245,7 @@ fn tree_chunk_cost() {
 #[test]
 fn the_beds_under_water_are_sand_clay_gravel_stone_or_dirt() {
     // a planet big enough for rivers (the 512 one has none), baked in seconds
-    let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+    let w = World::with_map(1536, 32, 5, Some(crate::bake::shared(5, 1536)));
     let b = &w.bodies[0];
     let soil = |m: u16| {
         let n = &BLOCKS.get(m).unwrap().name;
@@ -1386,7 +1386,7 @@ fn karsts(sys: &[crate::caves::System]) -> Vec<&crate::caves::System> {
 /// ADR 0063's limestone worm and tube worm exactly as at generation 2 (the review of 0161-karst-caves).
 #[test]
 fn a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3() {
-    let map = Arc::new(Map::bake(5, 768));
+    let map = crate::bake::shared(5, 768);
     let [w2, w3] = [2, 3].map(|g| World::with_grid(768, 32, 5, Some(map.clone()), None, 0.0, g));
     let (c2, c3) = (&w2.bodies[0].caves, &w3.bodies[0].caves);
     assert_eq!(w3.bodies[0].mantle, 0, "the 768 planet has no mantle");

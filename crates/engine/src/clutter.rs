@@ -938,10 +938,8 @@ mod tests {
     /// not aimed at.
     #[test]
     fn a_thing_is_aimed_at_by_its_own_faces() {
-        use crate::bake::Map;
         use glam::DVec3;
-        use std::sync::Arc;
-        let map = Arc::new(Map::bake(5, 1536));
+        let map = crate::bake::shared(5, 1536);
         let w = World::with_map(1536, 32, 5, Some(map.clone()));
         let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
@@ -1015,10 +1013,8 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
     /// Vegetation that does not draw it, it is not aimed at.
     #[test]
     fn a_plant_is_aimed_at_by_its_box() {
-        use crate::bake::Map;
         use glam::DVec3;
-        use std::sync::Arc;
-        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let w = World::with_map(1536, 32, 5, Some(crate::bake::shared(5, 1536)));
         let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
         let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
@@ -1074,10 +1070,8 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
     /// shader_models.wgsl `still_local` does, as high as they reach, and narrower than its cell.
     #[test]
     fn a_plants_box_stands_where_its_planes_are_drawn() {
-        use crate::bake::Map;
         use glam::{DVec2, DVec3};
-        use std::sync::Arc;
-        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let w = World::with_map(1536, 32, 5, Some(crate::bake::shared(5, 1536)));
         let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
         let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
@@ -1137,13 +1131,11 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
     /// 60 m, and each one near water (a bank, a beach, a gravel bar) or over limestone or marble.
     #[test]
     fn flint_lies_within_a_short_walk_of_every_spawn() {
-        use crate::bake::Map;
         use crate::world::{Block, World};
-        use std::sync::Arc;
         const NEAR: usize = 5;
         let flint = CLUTTER.iter().position(|r| r.name == "flint").unwrap();
         for seed in [5, 11, 23] {
-            let w = World::with_map(1536, 32, seed, Some(Arc::new(Map::bake(seed, 1536))));
+            let w = World::with_map(1536, 32, seed, Some(crate::bake::shared(seed, 1536)));
             let b = &w.bodies[0];
             let (f, si, sj) = b.locate(b.spawn);
             let (f, si, sj) = (f as u8, si as i32, sj as i32);

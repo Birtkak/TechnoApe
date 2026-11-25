@@ -10,12 +10,13 @@ lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35 weather=clear creatures=0
 high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50 weather=clear creatures=0
 orbit  | 0 | at=0,1,0 eye=2500 pitch=-89 weather=clear creatures=0
 coast  | 0 | at=-0.1210,0.9926,0 eye=8 pitch=-20 yaw=90 weather=clear creatures=0
-# the water close up (ADR 0071): the river by the spawn and the lake beside it
-river  | 0 | at=0.080732,0.845149,0.528398 eye=5 pitch=-45 yaw=30 weather=clear creatures=0
-lake   | 0 | at=0.078043,0.849093,0.522447 eye=6 pitch=-30 yaw=0 weather=clear creatures=0
-# W3's seasons (ADR 0060): the spawn's forest (about 30 degrees north) at noon of each season, looking south:
+# the water close up (ADR 0071): a river 790 m from the spawn and a lake 1.5 km off, 3 m deep (generation 15's
+# hills moved both: the old spots were a dry bed and a forest)
+river  | 0 | at=0.314953,0.745230,-0.587739 eye=5 pitch=-45 yaw=30 weather=clear creatures=0
+lake   | 0 | at=-0.209226,0.616479,-0.759064 eye=6 pitch=-30 yaw=0 weather=clear creatures=0
+# W3's seasons (ADR 0060): generation 15's spawn, a tree on the shore, at noon of each season by the spawn's clock:
 # the shadows shorten to summer and lengthen to winter
-season-spring | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=225 weather=clear creatures=0
-season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=149625 weather=clear creatures=0
-season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=300825 weather=clear creatures=0
-season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=450225 weather=clear creatures=0
+season-spring | 0 | at=0.117915,0.778453,-0.616528 eye=6 pitch=-25 yaw=0 time=225 weather=clear creatures=0
+season-summer | 0 | at=0.117915,0.778453,-0.616528 eye=6 pitch=-25 yaw=0 time=149625 weather=clear creatures=0
+season-autumn | 0 | at=0.117915,0.778453,-0.616528 eye=6 pitch=-25 yaw=0 time=300825 weather=clear creatures=0
+season-winter | 0 | at=0.117915,0.778453,-0.616528 eye=6 pitch=-25 yaw=0 time=450225 weather=clear creatures=0

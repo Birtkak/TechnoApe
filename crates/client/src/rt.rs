@@ -324,7 +324,7 @@ impl Rt {
         // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use;
         // a body that moved is one (shortcut: a TLAS build each frame a body moves; a second small TLAS for the
         // bodies if that shows in the frame thread's cost)
-        let mut rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0 || proxy_new || proxies != self.proxies.as_slice();
+        let mut rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0 || proxy_new || !crate::proxy::same(proxies, &self.proxies);
         // the slots they take (a split chunk two, a body one): a TLAS too small for them is made again larger, every slot new
         let need = now.len() + now.iter().filter(|(off, ..)| self.blas[off].2.is_some()).count() + proxies.len();
         let size = tlas_size(need, self.cap, self.max);
