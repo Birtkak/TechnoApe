@@ -5202,7 +5202,10 @@ fn the_spawn_is_never_inside_what_was_built_on_it() {
         let b = s.world.block_at(at + up * (0.5 + k as f64));
         s.world.set_block(b, 3);
     }
+    assert!(phys::blocked(&s.world, at), "built on");
     let now = s.spawn();
     assert!(!phys::blocked(&s.world, now), "standing in what was built on the spawn");
+    // /goto terra goes there too
+    assert_eq!(s.goto("terra").map(|g| g.0), Some(now));
     assert!((now - at).dot(up) > 1.9 && (now - at).reject_from(up).length() < 0.5, "on top of it: {:?} from {:?}", now, at);
 }

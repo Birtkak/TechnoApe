@@ -630,6 +630,43 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
 mod tests {
     use super::*;
 
+    /// What the physics' look-ups cost a call on the old grid and on the conformal one
+    /// (cargo test -p engine --profile play --lib grid_cost -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn grid_cost() {
+        for warp in [0.0, 1.0] {
+            let w = World::with_maps_warp(768, 64, 5, None, None, warp);
+            let b = w.bodies[0].clone();
+            let at = b.spawn_point();
+            let u = up(&w, at);
+            let side = u.any_orthonormal_vector();
+            let n = 200_000;
+            let time = |f: &mut dyn FnMut(DVec3)| {
+                let t = std::time::Instant::now();
+                for k in 0..n {
+                    f(at + side * (k % 97) as f64 * 0.13 + u * (1.0 + (k % 7) as f64 * 0.31));
+                }
+                t.elapsed().as_secs_f64() * 1e9 / n as f64
+            };
+            let locate = time(&mut |p| { std::hint::black_box(b.locate((p - b.centre).normalize())); });
+            let grid = time(&mut |p| { std::hint::black_box(w.grid_at(p)); });
+            let block = time(&mut |p| { std::hint::black_box(w.block_at(p)); });
+            let blk = time(&mut |p| { std::hint::black_box(blocked(&w, p)); });
+            let dir = time(&mut |p| { std::hint::black_box(b.dir(2, p.x.abs() % 700.0, p.z.abs() % 700.0)); });
+            let mut pl = Player::at(at + u * 0.5, tangent(side, u, DVec3::X));
+            let mut wm = World::with_maps_warp(768, 64, 5, None, None, warp);
+            let t = std::time::Instant::now();
+            let steps = 20_000;
+            for k in 0..steps {
+                let f = (side * if k % 400 < 200 { 1.0 } else { -1.0 }).as_vec3().to_array();
+                step(&mut wm, &mut pl, &Input { mv: [1.0, 0.0], fwd: f, jump: k % 50 == 0, ..Default::default() }, 1.0 / 20.0);
+            }
+            let st = t.elapsed().as_secs_f64() * 1e9 / steps as f64;
+            println!("{{\"grid_cost\":{{\"warp\":{warp},\"locate_ns\":{locate:.0},\"grid_at_ns\":{grid:.0},\"block_at_ns\":{block:.0},\"blocked_ns\":{blk:.0},\"dir_ns\":{dir:.0},\"step_ns\":{st:.0}}}}}");
+        }
+    }
+
     /// On the conformal grid a column near a cube corner is narrower than half a column of the old grid, and the
     /// box's cells past a face edge were one sample a cell of the face's own lattice carried on past the edge:
     /// half an old column out, which is the second column over there, so a wall in the first was walked into

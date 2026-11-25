@@ -56,7 +56,8 @@ impl Server {
                 Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
             }
             _ => match engine::bodies::find(to).filter(|&i| i < w.bodies.len())? {
-                0 => Some((w.bodies[0].spawn_point(), w.bodies[0].spawn.any_orthonormal_vector())),
+                // (the spawn as `spawn` gives it: on top of what was built there)
+                0 => Some((self.spawn(), w.bodies[0].spawn.any_orthonormal_vector())),
                 // the day side, the sun 45 degrees up: an airless night is black (on a gas body, its cloud tops:
                 // `Body::height`, step 6a)
                 i => {
