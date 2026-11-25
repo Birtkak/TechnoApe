@@ -297,13 +297,13 @@ impl App {
         // in third person off the head (ADR 0208)
         let eye = p;
         let p = if self.home() == Menu::Title { self.title_view(t) } else { self.camera(&eye) };
-        let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
-        self.last_pos = p.pos;
+        let vel = if dt > 0.0 && self.loaded_at.is_some() { (eye.pos - self.last_pos) / dt } else { DVec3::ZERO };
+        self.last_pos = eye.pos;
         if self.home() != Menu::Title && self.loaded_at.is_some() {
             self.sensed.eye = Some((eye.pos, eye.fwd));
             // (only where the HUD shows it: a benchmark run works it out once at its end)
             if self.run == "play" {
-                self.sense(&p);
+                self.sense(&eye);
             }
         }
         lap!("pose");
@@ -923,7 +923,8 @@ impl App {
         let gpu = self.gpu.as_ref().unwrap();
         lap!("fx");
         // the sun where the sky has it, seen from the camera's frame (ADR 0022)
-        let cf = self.world.frame_at(p.pos);
+        // (the eye's frame: the camera is in its coordinates, ADR 0208)
+        let cf = self.world.frame_at(eye.pos);
         let sun = (self.world.from_inertial(cf, self.world.sky.sun(self.world.time)) - p.pos).normalize().as_vec3();
         let clock = self.start.elapsed().as_secs_f32();
         let (sky_m, wt) = (&self.world.sky, self.world.time);
