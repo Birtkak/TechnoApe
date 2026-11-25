@@ -293,14 +293,17 @@ impl App {
         } else if self.run == "play" {
             self.loading_screen();
         }
-        let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
-        let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
-        self.last_pos = p.pos;
+        // the eye: where the player aims, senses, casts its shadow and holds its lamp; `p` from here is the camera,
+        // in third person off the head (ADR 0208)
+        let eye = p;
+        let p = if self.home() == Menu::Title { self.title_view(t) } else { self.camera(&eye) };
+        let vel = if dt > 0.0 && self.loaded_at.is_some() { (eye.pos - self.last_pos) / dt } else { DVec3::ZERO };
+        self.last_pos = eye.pos;
         if self.home() != Menu::Title && self.loaded_at.is_some() {
-            self.sensed.eye = Some((p.pos, p.fwd));
+            self.sensed.eye = Some((eye.pos, eye.fwd));
             // (only where the HUD shows it: a benchmark run works it out once at its end)
             if self.run == "play" {
-                self.sense(&p);
+                self.sense(&eye);
             }
         }
         lap!("pose");
@@ -920,7 +923,8 @@ impl App {
         let gpu = self.gpu.as_ref().unwrap();
         lap!("fx");
         // the sun where the sky has it, seen from the camera's frame (ADR 0022)
-        let cf = self.world.frame_at(p.pos);
+        // (the eye's frame: the camera is in its coordinates, ADR 0208)
+        let cf = self.world.frame_at(eye.pos);
         let sun = (self.world.from_inertial(cf, self.world.sky.sun(self.world.time)) - p.pos).normalize().as_vec3();
         let clock = self.start.elapsed().as_secs_f32();
         let (sky_m, wt) = (&self.world.sky, self.world.time);
@@ -1096,7 +1100,7 @@ impl App {
         } else {
             // where the camera is drawn (eased between two physics steps), not the last step's raw place: else the
             // shadow runs a step ahead of its body and trails it in a fast flight (the review of ADR 0119)
-            let me = (self.run == "play" && self.home() != Menu::Title).then(|| (self.globe.id, p.pos - up * phys::EYE, p.fwd));
+            let me = (self.run == "play" && self.home() != Menu::Title).then(|| (self.globe.id, eye.pos - eye.up * phys::EYE, eye.fwd));
             let extra: usize = self.args.get("bodies", 0usize);
             let side = up.any_orthonormal_vector();
             let fake = (0..extra).map(|k| {
@@ -1114,7 +1118,7 @@ impl App {
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
         // (a spectator has no hand: it holds and strikes nothing, ADR 0202)
-        let hand = (hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu) && !self.spectator)
+        let hand = (hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu) && !self.spectator && !self.third())
             .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
         let swing = engine::hand::HAND.curve(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
         let now = Instant::now();
@@ -1126,6 +1130,8 @@ impl App {
                 Some(crate::models::Beast { id: *id, model: model.clone(), act: a.act, pos: self.animal_at(*id, now)?, fwd: DVec3::from_array(a.fwd.map(f64::from)), scale: *scale })
             })
             .collect();
+        // the player's own figure in third person, from the camera; not on the title, nor with the camera in its head
+        self.models.own = (self.third() && self.home() != Menu::Title && p.pos.distance(eye.pos) > 0.6).then(|| (eye.pos - eye.up * phys::EYE - p.pos, eye.fwd, eye.up));
         self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_ref().map(|n| crate::models::Hand { item: n.as_deref(), swing }), &herd, &mut self.fx, &mut self.audio);
         self.models.upload(&gpu.queue, &gpu.mpieces);
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
@@ -1145,7 +1151,7 @@ impl App {
         let held = (hand_shown(self.run == "play", self.hammer || self.bucket, false, self.home(), self.menu) && cf < self.world.bodies.len())
             .then(|| self.slot_block(self.slot))
             .flatten()
-            .and_then(|m| crate::gpu::held_lamp(&self.world, BLOCKS.get(m), cf as u8, p.pos, p.fwd, up));
+            .and_then(|m| crate::gpu::held_lamp(&self.world, BLOCKS.get(m), cf as u8, eye.pos, eye.fwd, eye.up));
         let others_held = crate::gpu::others_lamps(&self.world, &self.globe.others, self.globe.id);
         let others: Vec<_> = others_held.iter().map(|o| o.1).collect();
         // a held lamp's rays pass through its holder's body (ADR 0119): its place in the proxies plus one

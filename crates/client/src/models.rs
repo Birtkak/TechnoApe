@@ -301,6 +301,8 @@ pub struct Models {
     /// The body the bare arm and the held item pass through on their way to the sun and the lamps (ADR 0119):
     /// the camera's own player's place in the proxy list plus one, 0 none.
     pub hand: u32,
+    /// The camera's own player in third person (ADR 0208): its feet from the camera, its look and its up.
+    pub own: Option<(DVec3, DVec3, DVec3)>,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
     clip_state: State,
     /// Placed model cells asked into a state (`set_state`), and the states playing.
@@ -371,6 +373,7 @@ impl Models {
             spec_scale: None,
             spec_place: Mat4::IDENTITY,
             hand: 0,
+            own: None,
             states: Default::default(),
             runs: Default::default(),
             held: Vec::new(),
@@ -707,6 +710,18 @@ impl Models {
             let f = (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), up.extend(0.0), z.extend(0.0), (o - cam).extend(1.0))).as_mat4();
             inst[m].push((c, t + a.id as f64 * 0.37, f, 0, a.scale));
         }
+        // the camera's own player in third person (ADR 0208): the figure at rest on its feet, as tall as the player's
+        // box and its middle on the player's, as its shadow's boxes (proxy.rs), its +z along the look
+        // shortcut: at rest, empty-handed, the head level; give it clips and the held item when the ape has them
+        let mut own: Option<(usize, usize)> = None;
+        if let (Some((feet, fwd, up)), Some(m)) = (self.own, by_name(FIGURE)) {
+            let [lo, hi] = self.list[m].0.bounds;
+            let z = (fwd - up * fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
+            let f = DMat4::from_mat3(cams[cf].1) * DMat4::from_cols(up.cross(z).extend(0.0), up.extend(0.0), z.extend(0.0), feet.extend(1.0));
+            let fit = Mat4::from_scale(Vec3::splat(engine::phys::HEIGHT as f32 / (hi.y - lo.y).max(1e-3))) * Mat4::from_translation(-Vec3::new((lo.x + hi.x) * 0.5, lo.y, (lo.z + hi.z) * 0.5));
+            own = Some((m, inst[m].len()));
+            inst[m].push((None, t, f.as_mat4() * fit, cf as u32, 1.0));
+        }
         // the effects' particles with a model look: at `size` times the model, resting on its first part's foot
         for (name, p) in fx.models() {
             let Some(m) = by_name(name) else { continue };
@@ -816,7 +831,8 @@ impl Models {
                 let first = self.pieces.len() as u32;
                 for (k, (_, _, x, body, s)) in list.iter().enumerate() {
                     let r = (*x * sc(*s) * poses[k][pi]).transpose();
-                    let hand = if held == Some((m, k)) { self.hand } else { 0 };
+                    // (the own figure too: its shadow's boxes would shade it, ADR 0208)
+                    let hand = if held == Some((m, k)) || own == Some((m, k)) { self.hand } else { 0 };
                     self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [hand, 0] });
                 }
                 if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(owner(pi))) {

@@ -327,6 +327,62 @@ fn a_bed_is_claimed_only_when_no_pick_up_or_drink_takes_the_button() {
     assert!(on_thing("R", true, false, true) && drinks(false, true));
 }
 
+/// How far the third-person camera sits from the head (ADR 0208), and how far short of a block in the way it
+/// stops, so the near plane stays out of it.
+pub(crate) const CAM_REACH: f64 = 4.0;
+const CAM_GAP: f64 = 0.25;
+
+/// The third-person camera for the eye `eye` (ADR 0208): `person` 1 behind the head looking where the player
+/// looks, 2 ahead of it looking back; `CAM_REACH` away along the look, or short of the first solid point on the
+/// way, so it never looks through the ground. The up is the eye's (the planet's at the player, with its roll).
+// shortcut: one ray in 5 cm steps, as `edit::aim`; a wall grazed beside the ray can cut the near plane: sweep a box when it shows
+pub(crate) fn third_person(solid: impl Fn(DVec3) -> bool, eye: &Pose, person: u8) -> Pose {
+    let dir = if person == 2 { eye.fwd } else { -eye.fwd };
+    let hit = (0..).map(|k| k as f64 * 0.05).take_while(|t| *t <= CAM_REACH).find(|t| solid(eye.pos + dir * *t));
+    Pose { pos: eye.pos + dir * hit.map_or(CAM_REACH, |t| (t - CAM_GAP).max(0.0)), fwd: -dir, up: eye.up }
+}
+
+impl App {
+    /// Whether the view is from outside the player (F5, ADR 0208): in play, not as a spectator, who has no body
+    /// (ADR 0202).
+    pub(crate) fn third(&self) -> bool {
+        self.run == "play" && self.person != 0 && !self.spectator
+    }
+
+    /// The camera for the eye `eye`: the eye itself, or in third person behind or ahead of the head. Aiming,
+    /// digging and placing stay the eye's.
+    pub(crate) fn camera(&self, eye: &Pose) -> Pose {
+        if !self.third() {
+            return *eye;
+        }
+        let w = &self.world;
+        let solid = |p: DVec3| {
+            let b = w.block_at(p);
+            b.pos.z >= 0 && BLOCKS.solid(w.block(b))
+        };
+        third_person(solid, eye, self.person)
+    }
+}
+
+#[test]
+fn the_third_person_camera_sits_behind_or_ahead_and_stops_at_a_block() {
+    let eye = Pose { pos: DVec3::new(10.0, 20.0, 30.0), fwd: DVec3::X, up: DVec3::Z };
+    // open air: 4 m behind looking the player's way, 4 m ahead looking back, the up kept
+    let back = third_person(|_| false, &eye, 1);
+    assert_eq!((back.pos, back.fwd, back.up), (eye.pos - DVec3::X * CAM_REACH, DVec3::X, DVec3::Z));
+    let front = third_person(|_| false, &eye, 2);
+    assert_eq!((front.pos, front.fwd, front.up), (eye.pos + DVec3::X * CAM_REACH, -DVec3::X, DVec3::Z));
+    // a wall 2 m behind: the camera stops short of it, in the air, still looking the player's way
+    let wall = |p: DVec3| p.x <= 8.0;
+    let back = third_person(wall, &eye, 1);
+    assert!(!wall(back.pos) && (back.pos.x - (8.0 + CAM_GAP)).abs() < 0.06, "at {}", back.pos.x);
+    assert_eq!(back.fwd, DVec3::X);
+    // the wall is not in the way of the view from the front
+    assert_eq!(third_person(wall, &eye, 2).pos, front.pos);
+    // a buried eye: the camera stays in the head, never behind it in the rock
+    assert_eq!(third_person(|_| true, &eye, 1).pos, eye.pos);
+}
+
 #[test]
 fn a_pick_up_in_the_water_wins_over_drinking() {
     // aimed at a thing lying in the water with the hand empty: the pick-up, not the drink
@@ -534,6 +590,8 @@ impl App {
                 self.zoomed &= self.settings.at(S::ZoomMode) == 1;
             }
             "f3" => self.f3 = !self.f3,
+            // first person, from behind, from the front (ADR 0208)
+            "f5" => self.person = (self.person + 1) % 3,
             // . and , step the time warp ten times up or down (the server's /timewarp answers)
             "warp+" | "warp-" => self.link.send(ToServer::Chat(format!("/timewarp {}", if a == "warp+" { "up" } else { "down" }))),
             "f9" if !self.texting() => {
@@ -1721,6 +1779,7 @@ impl App {
                 }
             }
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
+            let (eye, fwd) = { let c = self.camera(p); (c.pos, c.fwd) };
             let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };
             let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse((self.fov() as f32).to_radians(), w() as f32 / h() as f32, 0.1);
             let vp = proj * glam::camera::rh::view::look_to_mat4(Vec3::ZERO, fwd.as_vec3(), cam_up.as_vec3());
@@ -1777,7 +1836,7 @@ impl App {
         // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
         // a bob with the steps
         if !title {
-            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || self.spectator || lw < 1100.0) {
+            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || self.spectator || self.third() || lw < 1100.0) {
                 let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
                 let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
                 let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
