@@ -432,6 +432,19 @@ kept as a delta, and not ticked when nobody is near. Design: `docs/design/creatu
   the speeds and shares and keeps the animals alive; a creature row may not be removed, renamed or moved [0134,
   amends 0083's "compiled in"].
 - **Home world only**: herds belong to the body with `home = true` [0163].
+- **Hot ground** [draft, 2026-11-25; bug reports 2026-11-24_18-45-16 and 18-46-31]: a live volcano's hot ground is
+  its crater and its bare upper cone, 2 crater radii from its middle (`Body::hot_ground`, the same `volcano::BARE`
+  no plant grows within). No animal is made there, drifts there or is put there by `/spawn <creature> live`
+  (`herds::hot` refuses it, and lava anywhere); the look-ahead turns an animal from it and from lava as from
+  deep water. An animal already on it (an older save's) flees out from the crater at its run speed until it is
+  off, before any other thought: it heads straight out again every 2 s, the look-ahead turns it round walls in
+  between, and it takes any drop down the cone. One whose body is in lava is removed (looked at once a second).
+  Rain and snow: no drop is made over a live crater's lake, however high, nor where it would land in lava poured
+  anywhere (`World::boils_rain`, the client's `weather::Fall::drops`): it boils off in the hot air over it. A
+  world with no live volcano and no lava steps as before, to the bit.
+  Alternatives rejected: the rock's own heat at the surface as the rule (over 100 C five crater radii out on the
+  small planet, where trees stand and the air is cool: the heat field does not take the surface as a boundary yet).
+  Open: both follow the heat field once it does, as `BARE` itself.
 
 ## Open
 
