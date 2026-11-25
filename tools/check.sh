@@ -6,7 +6,8 @@
 # Usage: bash tools/check.sh [soak_minutes]   (default 3; about 4 min in all after a build, most of it the soak
 # and its replay, which run beside the tests and the viewpoints)
 #        bash tools/check.sh fast            the same checks cut short for use after every change: a 1 minute
-#        soak, the stand, fly and sim benchmarks only. The full gate stays what a handover needs.
+#        soak, the stand, fly and sim benchmarks only, and the tests less those tools/fast-skip.txt names (the
+#        bakes and the ones over a minute). The full gate runs every test and stays what a handover needs.
 #        bash tools/check.sh accept-perf     three quick runs of each benchmark run, their medians written to
 #        tests/perf/baseline.json: for a change that is slower (or faster) on purpose; its commit says why.
 # Every benchmark run is held to its baseline too (tools/perf.py, ADR 0025 K): a run worse than its tolerance
@@ -52,7 +53,7 @@ S=target/play/technoape-server.exe
   wait ) &
 sim=$!
 
-if python -I tools/partest.py out/check/test.log; then tests=ok; else
+if python -I tools/partest.py out/check/test.log ${FAST:+--fast}; then tests=ok; else
   tests=fail; fails+=("cargo test: $(grep -E '^test .* FAILED$' out/check/test.log | head -3 | sed 's/^test //;s/ \.\.\. FAILED//' | tr '\n' ' ')")
 fi
 t_tests=$SECONDS

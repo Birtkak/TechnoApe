@@ -786,28 +786,33 @@ impl Air {
         let per_day = (DAY / dt as f64).round() as usize;
         let days = (self.year / DAY).round() as usize;
         let n = self.n;
+        let one = self.one_thread();
         (self.hold, self.t) = (None, -(spin as f64) * DAY);
         for d in 0..spin {
             super::within(d as f32 / (spin + days) as f32);
-            for _ in 0..per_day {
-                self.step(dt);
-            }
+            on(&one, || {
+                for _ in 0..per_day {
+                    self.step(dt);
+                }
+            });
         }
         self.t = 0.0;
         let (mut th, mut rain, mut swing) = (vec![0f64; n], vec![0f64; n], vec![0f64; n]);
         for d in 0..days {
             super::within((spin + d) as f32 / (spin + days) as f32);
             let (mut lo, mut hi) = (vec![f32::MAX; n], vec![f32::MIN; n]);
-            for _ in 0..per_day {
-                self.step(dt);
-                for c in 0..n {
-                    th[c] += self.theta[c * LAYERS] as f64;
-                    rain[c] += self.fell[c] as f64;
-                    let t = self.surface_t(c);
-                    lo[c] = lo[c].min(t);
-                    hi[c] = hi[c].max(t);
+            on(&one, || {
+                for _ in 0..per_day {
+                    self.step(dt);
+                    for c in 0..n {
+                        th[c] += self.theta[c * LAYERS] as f64;
+                        rain[c] += self.fell[c] as f64;
+                        let t = self.surface_t(c);
+                        lo[c] = lo[c].min(t);
+                        hi[c] = hi[c].max(t);
+                    }
                 }
-            }
+            });
             for c in 0..n {
                 swing[c] += (hi[c] - lo[c]) as f64;
             }
@@ -817,6 +822,36 @@ impl Air {
             swing: swing.iter().map(|&v| (v / days as f64) as f32).collect(),
             rain: (0..n).map(|c| (rain[c] / days as f64 / 4096.0 / self.area[c] as f64 * 1000.0) as f32).collect(),
         }
+    }
+}
+
+/// Below this many columns a step's passes run on one thread: each pass is a few microseconds of work, and the
+/// pool's hand-offs cost more than that (the 256 planet's year took 9.4 s on the pool and 3.5 s on one thread, and
+/// with the tests' bakes side by side the pool's threads fought: 170 s). A step's only sum over columns is of whole
+/// numbers, so the result is the same to the bit on any number of threads.
+pub const ONE_THREAD_BELOW: usize = 2048;
+
+/// Runs `f` on `pool` when there is one, else here.
+fn on<R: Send>(pool: &Option<rayon::ThreadPool>, f: impl FnOnce() -> R + Send) -> R {
+    match pool {
+        Some(p) => p.install(f),
+        None => f(),
+    }
+}
+
+impl Air {
+    /// A pool of one thread for a grid of fewer than `ONE_THREAD_BELOW` columns.
+    fn one_thread(&self) -> Option<rayon::ThreadPool> {
+        (self.n < ONE_THREAD_BELOW).then(|| rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("a pool of one thread"))
+    }
+    /// `k` steps of `dt` seconds (`step`), a small grid's on one thread.
+    pub fn steps(&mut self, k: usize, dt: f32) {
+        let one = self.one_thread();
+        on(&one, || {
+            for _ in 0..k {
+                self.step(dt);
+            }
+        });
     }
 }
 
@@ -869,14 +904,35 @@ pub fn test_world(m: usize, r: f64) -> (Vec<f32>, Vec<f32>) {
 mod tests {
     use super::*;
 
+    /// A small grid's steps (one thread, `steps`) are the pool's to the bit.
+    #[test]
+    fn a_small_grids_steps_on_one_thread_are_the_pools() {
+        let (m, r) = (8, 2000.0);
+        assert!(6 * m * m < ONE_THREAD_BELOW);
+        let made = || {
+            let (ground, water) = test_world(m, r);
+            Air::new(m, r, ground, water, Params::default())
+        };
+        let (mut one, mut pool) = (made(), made());
+        one.steps(300, 10.0);
+        rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap().install(|| {
+            for _ in 0..300 {
+                pool.step(10.0);
+            }
+        });
+        let bits = |a: &Air| (a.theta.iter().chain(&a.tg).chain(&a.wind).map(|v| v.to_bits()).collect::<Vec<_>>(), a.vap.clone(), a.cloud.clone(), a.soil.clone(), a.snow.clone(), a.sea);
+        assert!(bits(&one) == bits(&pool), "one thread's steps differ from the pool's");
+    }
+
     /// What a step of the bake's air costs on the 4 km and 8 km planets' grids, on the pool and on one thread, and
     /// how many steps a bake's year is (cargo test -p engine --profile play --lib air_cost -- --ignored --nocapture).
     #[test]
     #[ignore]
     fn air_cost() {
-        for planet in [6144, 12288] {
+        // (256 and 1536: the small planets' grids, 8 and 12 a face edge; 3072: the 4 km bake's coarse one, 24)
+        for planet in [256, 1536, 3072, 6144, 12288] {
             let r = planet as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
-            let m = planet / 128;
+            let m = (planet / 128).max(8);
             let year = crate::world::year_of(planet as i32, crate::world::REAL);
             let (days, per_day) = ((year / DAY).round() as usize, (DAY / 10.0).round() as usize);
             for threads in [0, 1] {

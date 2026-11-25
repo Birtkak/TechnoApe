@@ -347,6 +347,31 @@ impl World {
             (_, p) => self.sky.circle(self.pose(p, t).centre, b.orbit, b.period, t),
         }
     }
+    /// The local sun time on body `f` at body-frame direction `up` at time t, hours 0 to 24: 12 when Sol stands due
+    /// south or north. Every body spins about its own +z (`Sky::planet`, `round_sun`, `circle`), so the hour angle
+    /// is about that axis on any of them.
+    pub fn local_hour(&self, f: usize, t: f64, up: DVec3) -> f64 {
+        let p = self.pose(f, t);
+        let s = p.rot.inverse() * (self.sky.sun(t) - p.centre);
+        let ha = (s.x * up.y - s.y * up.x).atan2(s.x * up.x + s.y * up.y);
+        (12.0 + ha / std::f64::consts::TAU * 24.0).rem_euclid(24.0)
+    }
+    /// The first time from t on when `local_hour` there shows `hour` (to a few seconds): a body's sun day is its own
+    /// length (Luna's a month), so the clock's rate is found where it runs, not taken as the home's. A body that
+    /// spins slower than it circles the sun has its clock run back (the sun rises in the west), and that is followed
+    /// too; None where the hour does not move (a pole, where every hour is the same).
+    pub fn next_local_hour(&self, f: usize, t: f64, up: DVec3, hour: f64) -> Option<f64> {
+        // hours a second, over a minute (the sun day is far longer than that on every body)
+        let rate = ((self.local_hour(f, t + 60.0, up) - self.local_hour(f, t, up) + 12.0).rem_euclid(24.0) - 12.0) / 60.0;
+        if rate.abs() < 1e-9 {
+            return None;
+        }
+        let mut at = t + ((hour - self.local_hour(f, t, up)) * rate.signum()).rem_euclid(24.0) / rate.abs();
+        for _ in 0..4 {
+            at += ((hour - self.local_hour(f, at, up) + 12.0).rem_euclid(24.0) - 12.0) / rate;
+        }
+        Some(at.max(t))
+    }
     /// Where frame `f`'s pose is anchored in the shared coordinates: its body's grid centre.
     pub fn nominal(&self, f: usize) -> DVec3 {
         if f == INERTIAL {

@@ -81,6 +81,23 @@ under it, the walk at detail 8 in flight (4.1 ms a frame).
 Work too big for a pass of small fixes, noted so a later session knows where the time is and what was already
 tried. Newest first; strike a line out when it is done.
 
+- **The gate's time (2026-11-25, second round).** The full gate took 42 minutes, 35 of them the tests; the engine's
+  test binary alone 2,070 s and the server's 1,180 s, because many tests bake planets cold and every bake's climate
+  ran its ~13,000 steps on the whole pool even on the 256 and 1536 planets (384 and 864 air columns): with every
+  test binary side by side, the soak's 256 planet took 170 to 215 s for its 10 s alone. Done: a grid under 2,048
+  columns steps on one thread (`air::ONE_THREAD_BELOW`, same bits), and five tests that baked the 1536/768 planet of
+  seed 5 for themselves take the run's shared one. Left: the tests that bake on purpose (`bake::tests`, the
+  version and determinism checks, `rivers.rs`'s 1536 with its own river area) are each a full small bake; a
+  cached file per (seed, n, params) for the tests, or the 1536 checks on 768, would be the next cut.
+- **The TLAS every frame for a body eased between rosters (2026-11-25, second round).** ADR 0209 eases the other
+  players' figures every frame, and the traced scene's proxies were compared bit for bit, so a standing player's
+  float noise rebuilt the TLAS each frame (3,200 builds in a quick stand run against 450: `rt` +0.3 ms, `submit`
+  +0.2). Now a body that moved under a millimetre is not built again (`proxy::same`): stand 1.62 -> 1.03 ms of the
+  frame thread. A player who walks still rebuilds it every frame: the second, small TLAS for the bodies (`rt.rs`'s
+  shortcut note) is the fix if a crowd shows in the cost.
+- **The fly run's `select` (2026-11-25).** 1.1 ms of the old baseline's build and 1.5-1.6 now, the bulk of fly's
+  frame thread; not looked into.
+
 - **The bake by stage after the 2026-11-25 batch** (`play` build, seed 1337, generation 15, the PC to itself,
   `BAKE_LAPS=1 technoape-server report=1`): the 4 km planet 49.1 s (erosion 3.8 coarse and 9.8 fine, climate
   21.3, ground water 11.2 in 950 sweeps); the 8 km planet 168.9 s (erosion 17.5 and 49.4, climate 83.0, ground

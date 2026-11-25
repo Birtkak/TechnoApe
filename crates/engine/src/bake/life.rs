@@ -351,9 +351,7 @@ pub fn climate(b: &Bake, p: &LifeParams) -> Year {
         air.sea = airb.sea;
         air.sea += (airb.ledger() - air.ledger()) as i64;
         (air.hold, air.t) = (None, -(p.air_settle as f64) * super::air::DAY);
-        for _ in 0..p.air_settle * (super::air::DAY / p.air_dt as f64).round() as usize {
-            air.step(p.air_dt);
-        }
+        air.steps(p.air_settle * (super::air::DAY / p.air_dt as f64).round() as usize, p.air_dt);
         air.t = 0.0;
         lap("climate (air model)", &mut times);
         // to the fine cells from the coarse year: smooth, then the lapse by the cell's own height; and to the
