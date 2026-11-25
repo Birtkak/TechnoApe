@@ -166,6 +166,8 @@ pub struct Work {
     rivers: Vec<Reach>,
     stats: Stats,
     t0: Instant,
+    /// The shields as broad lobed domes (map version 202, world generation 15); false: the round cones before.
+    pub domes: bool,
 }
 
 impl Work {
@@ -218,6 +220,7 @@ pub fn crust(seed: i32, n: i32) -> Work {
     let t0 = Instant::now();
     let m = (n / CELL).max(4) as usize;
     let r = n as f64 / (2.0 * PI / 3.0).sqrt();
+    let domes = true;
     let mut rng = Rng::new(seed as u32 as u64 ^ 0x4d61_7273);
     let north = (DVec3::Z + rng.dir() * 0.45).normalize();
     let theta0 = (1.0 - 2.0 * SHARE).acos();
@@ -239,7 +242,7 @@ pub fn crust(seed: i32, n: i32) -> Work {
     let land = Land { h: cells.iter().map(|c| c.0).collect(), kind: low.iter().map(|&l| if l { PLAIN } else { HIGHLAND }).collect(), g, r };
     let age = low.iter().map(|&l| if l { T_PLAINS } else { 0.0 }).collect();
     let stats = Stats { north, ..Stats::default() };
-    Work { seed, n, r, rng, land, age, low, north, theta0, craters: Vec::new(), young: Vec::new(), canyon: Vec::new(), tubes: Vec::new(), rivers: Vec::new(), stats, t0 }
+    Work { seed, n, r, rng, land, age, low, north, theta0, craters: Vec::new(), young: Vec::new(), canyon: Vec::new(), tubes: Vec::new(), rivers: Vec::new(), stats, t0, domes }
 }
 
 /// A giant basin: a deep flat floor, steep walls and a broad low rim, older than everything on it.
@@ -295,6 +298,7 @@ pub fn impacts(w: &mut Work, volcanism: bool, age: f64) {
 /// The `volcanism` stage: the bulge, its lava plains, the shields and their calderas and tubes, the canyon, then the
 /// craters younger than the lava.
 pub fn volcanism(w: &mut Work) {
+    let domes = w.domes;
     let Work { seed, r, rng, land, age, north, theta0, craters, young, canyon, tubes, stats, .. } = w;
     let (seed, r, north) = (*seed, *r, *north);
     let (e1, e2) = (north.any_orthonormal_vector(), north.cross(north.any_orthonormal_vector()));
@@ -342,24 +346,39 @@ pub fn volcanism(w: &mut Work) {
     let tw = rng.range(-0.25, 0.25);
     let nw = (no - ea).normalize() * tw.cos() + (no + ea).normalize() * tw.sin();
     plan.push((toward(c, nw, RB * rng.range(0.9, 1.05)), 0.3, Some(TOP - rng.range(0.0, 12.0) as f32)));
+    // (the domes: lobes of a few hundred metres on the outline, flow tongues of 90 m on it and down the flanks)
+    let (outline, tongue) = (luna::noise(seed, 0x43, 1.0 / 320.0, 2), luna::noise(seed, 0x44, 1.0 / 90.0, 2));
     for (sc, rad, top) in plan {
         let giant = top.is_some();
+        // a dome is half again as wide as the cone was (a quarter for the giant): the same height on a gentler flank
+        let rad = if domes { rad * if giant { 1.25 } else { 1.35 } } else { rad };
         let (e3, n3) = (east(sc), northward(sc));
         let base = (0..16).map(|k| land.h[land.g.locate(toward(sc, e3 * (k as f64 / 16.0 * TAU).cos() + n3 * (k as f64 / 16.0 * TAU).sin(), rad)) as usize]).sum::<f32>() / 16.0;
         let summit = top.unwrap_or(base + rng.range(150.0, 190.0) as f32) as f64;
         let (rc, scarp): (f64, f64) = if giant { (0.13, 35.0) } else { (0.1, 0.0) };
-        let hh = (summit - base as f64 - scarp) / (1.0 - rc).powf(1.15);
+        // the flank's height over its foot at x of the way out: a cone's, or a dome's (flat on top, steepest two
+        // thirds out, level where it meets the plain)
+        let flank = |x: f64| if domes { (1.0 - x.powf(1.6)).max(0.0).powf(1.4) } else { (1.0 - x).powf(1.15) };
+        let hh = (summit - base as f64 - scarp) / flank(rc);
         let cd = 0.07 * hh;
         // the giant's caldera is two, nested
         let inner = toward(sc, e3 * rng.range(-1.0, 1.0) + n3 * rng.range(-1.0, 1.0), 0.05 * rad);
         let (mut h, mut kind) = (std::mem::take(&mut land.h), std::mem::take(&mut land.kind));
-        Work::each(land, sc, rad, |cell, ang| {
-            let x = ang / rad;
+        Work::each(land, sc, if domes { 1.35 * rad } else { rad }, |cell, ang| {
+            let p = land.g.d(cell as u32) * r;
+            // a dome's foot runs out in lobes and tongues of lava, not a circle; its summit is where it was
+            let (lobe, flow) = if domes { (at(&outline, p) as f64, at(&tongue, p) as f64) } else { (0.0, 0.0) };
+            let x = ang / (rad * (1.0 + smooth(0.45, 1.1, ang / rad) * (0.22 * lobe + 0.02 * flow)));
             if x >= 1.0 {
                 return;
             }
             let wall = scarp * (1.0 - smooth(0.9, 0.95, x));
-            let mut v = base as f64 + hh * (1.0 - x).powf(1.15) + wall;
+            let mut v = base as f64 + hh * flank(x) + wall;
+            if domes {
+                // its foot lies on the ground as it is there (no step where the ground is under the foot's level),
+                // and flows a few metres high run down the flank
+                v += (h[cell] as f64 - base as f64) * smooth(0.7, 1.0, x) + 2.5 * flow * smooth(rc, 2.0 * rc, x) * (1.0 - smooth(0.8, 1.0, x));
+            }
             if x < rc {
                 v = summit - cd * (1.0 - smooth(0.7 * rc, rc, x));
             }
