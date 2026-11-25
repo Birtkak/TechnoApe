@@ -108,7 +108,7 @@ impl Server {
         match verb.as_deref() {
             Some("help") | None => [
                 "Commands:",
-                "  /time                the time of day at the spawn",
+                "  /time                the sun time where you stand",
                 "  /time set <when>     sunrise day noon sunset night",
                 "                       midnight, 14:30, or world seconds",
                 "                       or spring summer autumn winter",
@@ -154,11 +154,15 @@ impl Server {
                     }
                 };
                 let secs = |v: &str| v.parse::<f64>().ok().filter(|s| s.is_finite());
+                // the clock where the player stands: the body under them and their direction on it (in space, the
+                // spawn's clock)
+                let me = self.clients[i].phys.pos;
+                let here = Some(self.world.frame_at(me)).filter(|&f| f < self.world.bodies.len()).map(|f| (f, (me - self.world.bodies[f].centre).normalize_or(DVec3::Z)));
                 let to = match (w.get(1).copied(), w.get(2).copied()) {
                     (None | Some("query"), _) => None,
                     (Some("set"), Some(v)) if sky::season(v).is_some() => Some(sky::next_season(now, sky::season(v).unwrap(), self.world.sky.year)),
                     (Some("set"), Some(v)) => match (named(v), secs(v)) {
-                        (Some(h), _) => Some(sky::next_hour(now, h)),
+                        (Some(h), _) => Some(here.and_then(|(f, up)| self.world.next_local_hour(f, now, up, h)).unwrap_or_else(|| sky::next_hour(now, h))),
                         (None, Some(s)) if s >= 0.0 => Some(s),
                         _ => return format!("not a time: {v}\n  try noon, sunset, 14:30 or a number of seconds"),
                     },
@@ -180,8 +184,14 @@ impl Server {
                 };
                 let (day, h) = sky::clock(t);
                 let what = if to.is_some() { "time set to" } else { "it is" };
-                let m = (h * 60.0).round() as u32 % (24 * 60);
-                format!("{what} day {day}, {:02}:{:02} at the spawn (world time {t:.0} s)", m / 60, m % 60)
+                let hm = |h: f64| {
+                    let m = (h * 60.0).round() as u32 % (24 * 60);
+                    format!("{:02}:{:02}", m / 60, m % 60)
+                };
+                match here {
+                    Some((f, up)) => format!("{what} {} here on {} (day {day}, {} at the spawn; world time {t:.0} s)", hm(self.world.local_hour(f, t, up)), self.world.bodies[f].name, hm(h)),
+                    None => format!("{what} day {day}, {} at the spawn (world time {t:.0} s)", hm(h)),
+                }
             }
             // for trying the journal (draft ADR journal-data) until the book shows it
             Some("journal") => {

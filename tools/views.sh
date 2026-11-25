@@ -11,7 +11,10 @@ fi
 mkdir -p out/views
 grep -v '^#' tests/views/views.txt | grep '|' | while IFS='|' read -r name allowed args; do
   name=$(echo $name); allowed=$(echo $allowed)
-  line=$(timeout 240 ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>/dev/null | tail -1)
+  # (stderr kept: a view with no shot in the gate, where it shares the PC with the tests, says why in its .err)
+  t0=$SECONDS
+  line=$(timeout 240 ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>out/views/$name.err | tail -1)
+  [ -n "$line" ] && [ "${line:0:1}" = "{" ] || line="took $((SECONDS - t0)) s; stderr's end: $(tail -c 200 out/views/$name.err | tr '\n|' '  ')"
   echo "$name|$allowed|$args|$line"
 done | python -I -c "
 import json, sys
@@ -21,7 +24,7 @@ for row in sys.stdin.read().splitlines():
     try:
         s = json.loads(line)['shot']
     except Exception:
-        fails.append(f'{name}: no shot (repro: technoape.exe run=stand {args.strip()} shot=out/views/{name}.png)'); continue
+        fails.append(f'{name}: no shot, {line.strip()[:240]} (repro: technoape.exe run=stand {args.strip()} shot=out/views/{name}.png)'); continue
     views[name] = {'cracks': s['cracks'], 'allowed': int(allowed), 'diff_pct': s['diff_pct']}
     repro = f'technoape.exe run=stand {args.strip()} shot=out/views/{name}.png baseline=tests/views/{name}.png'
     if s['cracks'] > int(allowed):
