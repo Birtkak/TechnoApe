@@ -358,6 +358,9 @@ pub struct Server {
     sky: Vec<engine::weather::Cell>,
     sky_at: Option<u64>,
     force: Option<engine::weather::Force>,
+    /// The snow's second on every live column whatever the air (the test's reference): false, it is passed over
+    /// while nothing is held and no player's square can snow (`snow_due`).
+    snow_always: bool,
     /// Every pile on the ground, by cell (ADR 0074), and the cells whose pile changed this tick.
     piles: BTreeMap<PileKey, Pile>,
     piles_changed: Vec<Block>,

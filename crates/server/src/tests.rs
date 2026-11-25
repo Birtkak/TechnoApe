@@ -5040,6 +5040,8 @@ fn live_snow_is_sent_saved_reloaded_and_replays_to_the_same_hash() {
     let start = || {
         let (tx, rx) = channel();
         let mut s = Server::baked(1536, 32, 7, rx);
+        // (the snow's own mechanics: its second on every live column, whatever the air)
+        s.snow_always = true;
         let (c, sv) = local();
         tx.send(sv).unwrap();
         for _ in 0..TICK_HZ as u64 + 1 {
@@ -5098,6 +5100,8 @@ fn live_snow_is_sent_saved_reloaded_and_replays_to_the_same_hash() {
 fn a_save_keeps_the_snow_short_of_a_unit() {
     let (tx, rx) = channel();
     let mut s = Server::baked(1536, 32, 7, rx);
+    // (the snow's own mechanics: its second on every live column, whatever the air)
+    s.snow_always = true;
     let (_c, sv) = local();
     tx.send(sv).unwrap();
     for _ in 0..TICK_HZ as u64 + 1 {
@@ -5119,6 +5123,8 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     use engine::clutter::{thing_at, VEGETATION};
     let (tx, rx) = channel();
     let mut s = Server::baked(1536, 32, 7, rx);
+    // (the snow's own mechanics: its second on every live column, whatever the air)
+    s.snow_always = true;
     let (c, sv) = local();
     tx.send(sv).unwrap();
     for _ in 0..TICK_HZ as u64 + 1 {
@@ -5188,6 +5194,27 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
     assert!(drain(&c).iter().any(|m| matches!(m, ToClient::Unedit(v) if v.contains(&green_b))), "the client is told the cell is generation's again");
     assert_eq!((s.world.block(green_b), s.world.edit(green_b), plant(&s, green_b)), (AIR, None, grows), "melted back, the same plant there");
     assert_eq!((s.world.block(lit_b), s.world.snow.cols[&lit].units), (torch, 0), "the torch still there, its snow melted");
+}
+
+/// Where it cannot snow (no snow held, none lying in the air's cells round any player, the air there over
+/// freezing) the snow's second is passed over: no live columns are made, and the world is the one the full step
+/// leaves, to the hash. It was 54,000 columns a second with 50 players, 5 ms of one tick in twenty.
+#[test]
+fn the_snows_second_is_passed_over_in_warm_air_to_the_same_hash() {
+    let run = |always: bool| {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(1536, 32, 7, rx);
+        s.snow_always = always;
+        let (_c, sv) = local();
+        tx.send(sv).unwrap();
+        for _ in 0..3 * TICK_HZ as u64 + 1 {
+            s.tick();
+        }
+        (s.hash(), s.world.snow.cols.len())
+    };
+    let (slow, fast) = (run(true), run(false));
+    assert_eq!(slow.1, 33 * 33, "the reference steps the live square");
+    assert_eq!(fast, (slow.0, 0), "the same world, and no column stepped");
 }
 
 /// A player sent to the spawn (a new one, a respawn with no home, a body let go) stands on what is there now:

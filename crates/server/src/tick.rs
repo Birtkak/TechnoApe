@@ -462,7 +462,22 @@ impl Server {
             // air's snowfall where it is under freezing at the column's height, from the air column's account; eight
             // eighths a block of snow through the edits; the ice and rock short of a block shown with it
             let feet: Vec<DVec3> = self.clients.iter().map(|c| c.phys.pos).collect();
-            let near = engine::snow::near(world, &feet);
+            // Where it cannot snow the second is passed over: nothing held, lent or owed, no weather forced, and
+            // round every player on Terra no snow lying in the air's cells and the air over freezing (2 C to spare,
+            // read 40 m over the feet at the square's corners and middle: higher ground in 16 columns is colder by
+            // less). The live columns are then made when it can snow, as when a player walks into the cold.
+            let snow_due = self.snow_always || force.is_some() || !world.snow.bare() || weather.as_ref().is_some_and(|w| {
+                let reach = engine::snow::LIVE as f64 + 1.0;
+                feet.iter().filter(|p| world.frame_at(**p) == 0).any(|p| {
+                    let (_, f, g) = world.grid_at(*p);
+                    let over = (*p - b0.centre).length() - b0.sea.map_or(b0.radius, |s| b0.layer_r(s)) + 40.0;
+                    [(0.0, 0.0), (-reach, -reach), (reach, -reach), (-reach, reach), (reach, reach)].iter().any(|&(a, b)| {
+                        let d = b0.dir(f, g.x + a, g.y + b);
+                        w.lying(w.column(d)) > 0.0 || w.here(d, over).temp < 2.0
+                    })
+                })
+            });
+            let near = if snow_due { engine::snow::near(world, &feet) } else { Default::default() };
             let wet: std::collections::BTreeSet<Col> = near.iter().copied().filter(|&c| world.water.open_water(c)).collect();
             // a layer's floor cell a block of snow may be set in: empty air no player stands in (a plant, a torch or a
             // pair of feet keeps it at seven eighths)
@@ -491,7 +506,10 @@ impl Server {
                 let cell = w.column(b0.dir(c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5));
                 Some(t - w.view().theta[cell] as f64 + ft as f64)
             };
-            for (b, was, m) in world.step_snow(self.warp as f64, &near, Some(&snow_air), &here) {
+            if !snow_due {
+                world.show_frozen();
+            }
+            for (b, was, m) in if snow_due { world.step_snow(self.warp as f64, &near, Some(&snow_air), &here) } else { Vec::new() } {
                 match m {
                     Some(m) => {
                         changed.push((b, m));
