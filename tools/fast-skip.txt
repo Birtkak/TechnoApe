@@ -1,0 +1,35 @@
+# Tests the quick gate (bash tools/check.sh fast) leaves out; the full gate runs them all. One per line, matched as a
+# substring of the test's path (cargo test's --skip). The bake modules bake planets cold; the rest ran over a minute
+# in the full gate of 2026-11-25 (42 minutes, 35 of them tests), where the quick gate was meant to take five.
+# A line out of this list takes its test back into the quick gate; tools/partest.py's log ends with the slowest.
+bake::
+world::baked_tests::
+world::ground_tests::
+soak::tests::
+clutter::tests::a_plant_is_aimed_at_by_its_box
+clutter::tests::a_plants_box_stands_where_its_planes_are_drawn
+clutter::tests::a_thing_is_aimed_at_by_its_own_faces
+clutter::tests::flint_lies_within_a_short_walk_of_every_spawn
+clutter::tests::samples_lie_over_the_bodies_and_not_away_from_them
+nav::tests::the_ground_is_named_by_its_biome_and_a_map_less_body_by_nothing
+audio::tests::a_cave_rings_on_after_the_sound_and_a_field_does_not
+audio::tests::every_row_makes_a_clean_sound
+sound::tests::a_row_reads_and_writes_back_and_the_game_takes_it
+map::tests::the_starter_maps_pass_the_check
+rows::tests::
+shell::tests::
+a_stop_line_saves_and_ends_the_server
+a_block_made_cutout_takes_the_eraser_and_undo_takes_the_kind_back
+a_fine_painting_paints_at_its_size_and_a_new_face_takes_it
+a_pending_set_goes_with_a_switch_of_face
+a_season_is_added_painted_and_removed
+effects_
+every_tab_is_drawn_inside_the_window_at_every_scale
+fauna_
+generate_variants_picks_a_set_and_a_variant_is_removed
+maps_
+models_
+palette_
+shell_search_find_and_the_close_question
+sounds_
+structures_
