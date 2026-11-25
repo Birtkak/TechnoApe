@@ -5197,8 +5197,10 @@ fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
 }
 
 /// Where it cannot snow (no snow held, none lying in the air's cells round any player, the air there over
-/// freezing) the snow's second is passed over: no live columns are made, and the world is the one the full step
-/// leaves, to the hash. It was 54,000 columns a second with 50 players, 5 ms of one tick in twenty.
+/// freezing) the snow's second is passed over: no live columns are made, and the rest of the world is the one
+/// the full step leaves, to the hash (bare snow is in no hash: this proves a warm second does nothing else, not
+/// that a skipped stretch and then a cold one ends as the full step would; it does not, see `snow_due`).
+/// It was 54,000 columns a second with 50 players, 5 ms of one tick in twenty.
 #[test]
 fn the_snows_second_is_passed_over_in_warm_air_to_the_same_hash() {
     let run = |always: bool| {

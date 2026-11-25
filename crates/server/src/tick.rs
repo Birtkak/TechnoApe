@@ -463,17 +463,19 @@ impl Server {
             // eighths a block of snow through the edits; the ice and rock short of a block shown with it
             let feet: Vec<DVec3> = self.clients.iter().map(|c| c.phys.pos).collect();
             // Where it cannot snow the second is passed over: nothing held, lent or owed, no weather forced, and
-            // round every player on Terra no snow lying in the air's cells and the air over freezing (2 C to spare,
-            // read 40 m over the feet at the square's corners and middle: higher ground in 16 columns is colder by
-            // less). The live columns are then made when it can snow, as when a player walks into the cold.
+            // round every player on Terra no snow lying in the air's cells and the air over freezing: 2 C to spare,
+            // read at the square's corners and middle 40 m over the ground there or the feet, whichever is higher
+            // (the air cools 0.1 C a metre: a player in a mine reads the surface over it, not its own depth). The
+            // live columns are then made when it can snow, as when a player walks into the cold: with the cell's
+            // lying snow as they join, where the full step's columns, live since it was warm, had none (the review).
             let snow_due = self.snow_always || force.is_some() || !world.snow.bare() || weather.as_ref().is_some_and(|w| {
                 let reach = engine::snow::LIVE as f64 + 1.0;
                 feet.iter().filter(|p| world.frame_at(**p) == 0).any(|p| {
                     let (_, f, g) = world.grid_at(*p);
-                    let over = (*p - b0.centre).length() - b0.sea.map_or(b0.radius, |s| b0.layer_r(s)) + 40.0;
+                    let (feet_r, sea_r) = ((*p - b0.centre).length(), b0.sea.map_or(b0.radius, |s| b0.layer_r(s)));
                     [(0.0, 0.0), (-reach, -reach), (reach, -reach), (-reach, reach), (reach, reach)].iter().any(|&(a, b)| {
                         let d = b0.dir(f, g.x + a, g.y + b);
-                        w.lying(w.column(d)) > 0.0 || w.here(d, over).temp < 2.0
+                        w.lying(w.column(d)) > 0.0 || w.here(d, feet_r.max(b0.height(d)) - sea_r + 40.0).temp < 2.0
                     })
                 })
             });
