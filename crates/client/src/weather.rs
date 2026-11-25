@@ -240,6 +240,10 @@ impl Fall {
                 self.open -= self.open * 0.01;
                 continue;
             };
+            // none over lava (bug 2026-11-24_18-46-31, rain in the volcano): it boils off in the hot air over it
+            if world.boils_rain(b.centre + land.normalize() * (at.floor as f64 + 0.1)) {
+                continue;
+            }
             if r < 8.0 {
                 // (a deep column: nothing within 8 blocks under the drop's start, so open over the head)
                 let open = at.col.deep || at.floor as f64 <= rel.length() + 2.0;

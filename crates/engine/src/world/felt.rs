@@ -190,6 +190,17 @@ impl World {
         g.air(World::col(b), z).0
     }
 
+    /// Whether rain or snow falling at world point p boils off (draft decision 2026-11-25, hot ground): p is in a
+    /// glowing fluid (lava, stored or generated), so none lands on lava, or anywhere over a live crater's lake,
+    /// however high, so none falls through the hot air over it.
+    /// shortcut: lava alone; rock near a chamber reads over 100 C at its top cell while the air on it is cool, so
+    /// the ground's own heat is not asked until the heat field takes the surface as a boundary (`volcano::BARE`).
+    pub fn boils_rain(&self, p: DVec3) -> bool {
+        let c = self.block_at(p);
+        self.bodies[c.body as usize].craters().iter().any(|k| k.face == c.face && k.lake_cols.binary_search(&(c.pos.x, c.pos.y)).is_ok())
+            || self.fluid_at(p).is_some_and(|k| crate::fluids::FLUIDS.now().get(k).glows())
+    }
+
     /// The fluid at world point p, if p is in one (stored, or as generation gives it).
     pub fn fluid_at(&self, p: DVec3) -> Option<u8> {
         let (_, _, g) = self.grid_at(p);
@@ -557,5 +568,27 @@ mod tests {
         let over = w.felt(b.centre + mid * (lake_r + 3.0), Some(15.0));
         eprintln!("3 m over the lake's middle: {over:?}");
         assert!(over.temp > 150.0 && over.mrt <= 375.0, "{over:?}");
+    }
+
+    /// Bug 2026-11-24_18-46-31 (rain inside the volcano, falling onto 1150 C lava): no drop lands on lava, a crater's
+    /// lake or lava poured anywhere; beside it and on the plain land it rains as ever.
+    #[test]
+    fn rain_boils_off_over_lava_and_falls_elsewhere() {
+        let w = volcano_world();
+        let b = &w.bodies[0];
+        let c = b.craters().iter().find(|c| c.lake.is_some()).expect("a live crater with a lake");
+        let (i, j) = c.lake_cols[c.lake_cols.len() / 2];
+        let d = b.dir(c.face as usize, i as f64 + 0.5, j as f64 + 0.5);
+        let bed = b.layer_r(b.first_air(b.col_height(c.face, i, j)) as f64);
+        assert!(w.lava_at(b.centre + d * (bed + 0.1)), "the lake over its bed");
+        assert!(w.boils_rain(b.centre + d * (bed + 0.1)), "onto the lake's bed, through the lava");
+        assert!(w.boils_rain(b.centre + d * (b.layer_r(c.lake.unwrap() as f64) + 30.0)), "in the air 30 m over the lake");
+        let land = b.centre + b.spawn * (b.layer_r(b.first_air(b.height(b.spawn)) as f64) + 0.1);
+        assert!(!w.boils_rain(land), "on the land at the spawn");
+        // lava poured on cold ground: none onto it, rain beside it
+        let mut w = lava_world();
+        let (at, top) = lava(&mut w, 0..3, 0..3, 2);
+        assert!(w.boils_rain(eye(&w, Block { pos: IVec3::new(at.pos.x, at.pos.y, top - 1), ..at }, 1, 1, 0.1)), "onto poured lava");
+        assert!(!w.boils_rain(eye(&w, at, 30, 30, 0.1)), "30 columns from it");
     }
 }
