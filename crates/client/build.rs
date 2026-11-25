@@ -17,4 +17,45 @@ fn main() {
     for d in ["../engine/src", "../server/src", "src", "../../data"] {
         println!("cargo:rerun-if-changed={d}");
     }
+    version_info();
+}
+
+/// The exe's name, product and version for Windows (Properties > Details): antivirus and SmartScreen trust an
+/// unsigned exe with none less. Built by the Windows SDK's rc.exe; without the SDK the exe is built without it.
+fn version_info() {
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+        return;
+    }
+    let Some(rc) = std::fs::read_dir(r"C:\Program Files (x86)\Windows Kits\10\bin").ok().and_then(|d| {
+        let mut kits: Vec<_> = d.flatten().map(|e| e.path().join(r"x64\rc.exe")).filter(|p| p.is_file()).collect();
+        kits.sort();
+        kits.pop()
+    }) else {
+        println!("cargo:warning=no rc.exe from the Windows SDK: the exe has no version information");
+        return;
+    };
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let v: Vec<u32> = env!("CARGO_PKG_VERSION").split('.').map(|n| n.parse().unwrap_or(0)).collect();
+    let (a, b, c) = (v[0], v[1], v[2]);
+    let s = |k: &str, val: &str| format!("      VALUE \"{k}\", \"{val}\"\n");
+    let rc_text = format!(
+        "1 VERSIONINFO\nFILEVERSION {a},{b},{c},0\nPRODUCTVERSION {a},{b},{c},0\nFILEOS 0x40004\nFILETYPE 0x1\n\
+         BEGIN\n  BLOCK \"StringFileInfo\"\n  BEGIN\n    BLOCK \"040904B0\"\n    BEGIN\n{}{}{}{}{}{}{}    END\n  END\n\
+         BLOCK \"VarFileInfo\"\n  BEGIN\n    VALUE \"Translation\", 0x409, 1200\n  END\nEND\n",
+        s("CompanyName", "TechnoApe"),
+        s("FileDescription", "TechnoApe"),
+        s("ProductName", "TechnoApe"),
+        s("InternalName", "technoape"),
+        s("OriginalFilename", "TechnoApe.exe"),
+        s("FileVersion", &format!("{a}.{b}.{c}")),
+        s("ProductVersion", &format!("{a}.{b}.{c}")),
+    );
+    std::fs::write(out.join("version.rc"), rc_text).unwrap();
+    let res = out.join("version.res");
+    let ok = std::process::Command::new(rc).arg("/nologo").arg("/fo").arg(&res).arg(out.join("version.rc")).status();
+    if ok.is_ok_and(|s| s.success()) {
+        println!("cargo:rustc-link-arg-bins={}", res.display());
+    } else {
+        println!("cargo:warning=rc.exe failed: the exe has no version information");
+    }
 }
