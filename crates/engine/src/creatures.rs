@@ -84,14 +84,19 @@ pub struct Creature {
     /// Degrees the tail turns each way.
     pub wag: f32,
     /// Points of health a live one has (ADR 0211); 0: it cannot be hurt.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub health: u8,
     /// Pieces of raw meat one leaves, killed.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub meat: u8,
     /// Health points a hurt one's bite takes from the player it charges; 0: hurt, it flees.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub bite: u8,
+}
+
+/// A row without ADR 0211's numbers is written without them, so a saved file keeps its bytes.
+fn is_zero(v: &u8) -> bool {
+    *v == 0
 }
 
 /// Every number's range, for the checks and the Studio's sliders: (name, min, max, unit, group).
